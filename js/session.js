@@ -29,6 +29,7 @@
     lastSharedState: null,
     callbacks: { onState: null, onCursors: null, onRole: null, onPeers: null, onStatus: null },
     disabled: false,
+    _ttlInterval: null,
   };
 
   function pickName() {
@@ -144,7 +145,7 @@
     });
 
     // Purge cursors that haven't moved in 5 s — handles tabs closed without a clean goodbye
-    setInterval(() => {
+    state._ttlInterval = setInterval(() => {
       const STALE_MS = 5000;
       const now = Date.now();
       let changed = false;
@@ -191,6 +192,7 @@
 
   function retryInit() {
     if (state.disabled) return;
+    if (state._ttlInterval) { clearInterval(state._ttlInterval); state._ttlInterval = null; }
     try { if (state.peer) state.peer.destroy(); } catch (e) {}
     state.peer = null;
     state.viewerConns.clear();
