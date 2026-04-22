@@ -1,5 +1,5 @@
 // Дополнительные головоломки для /hack. Каждая — самостоятельный React-компонент
-// с контрактом: props { lang, onWin }, вызывает onWin() при успехе.
+// с контрактом: props { lang, onWin, onStateChange?, readOnlySnapshot? }, вызывает onWin() при успехе.
 
 // =====================================================================
 // 1. SEQUENCE LOCK — повторить последовательность (Simon Says)
@@ -399,7 +399,7 @@ function PipePuzzle({ lang, onWin, onStateChange, readOnlySnapshot }) {
   }, [readOnlySnapshot, board]);
 
   React.useEffect(() => {
-    if (connected && !wonRef.current) { wonRef.current = true; onWin(); }
+    if (connected && !wonRef.current && !readOnlySnapshot) { wonRef.current = true; onWin(); }
   }, [connected]);
 
   const displayBoard = readOnlySnapshot ? (readOnlySnapshot.board || board) : board;
@@ -461,7 +461,7 @@ function FrequencyPuzzle({ lang, onWin, onStateChange, readOnlySnapshot }) {
   const blocks  = Math.round(strength * 24);
 
   const tryLock = () => {
-    if (timeLeft <= 0) return;
+    if (displayTimeLeft <= 0) return;
     if (dist <= tolerance) {
       if (!wonRef.current) { wonRef.current = true; SCPAudio.granted(); onWin(); }
     } else {
