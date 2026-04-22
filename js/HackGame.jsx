@@ -37,7 +37,6 @@ function HackGame({ lang, state, onSuccess, onCancel, onSnapshot, onDone, readOn
   const [done, setDone] = React.useState(false);
   const reward = React.useMemo(() => getHackReward(state, lang), []);
   const puzzleType = React.useMemo(() => pickHackPuzzle(state.hackPuzzleType), []);
-  const title = PUZZLE_TITLES[puzzleType][t ? 'ru' : 'en'];
 
   // When viewer, use the puzzle type from host's broadcast; otherwise use locally picked type.
   const activePuzzleType = (readOnly && viewState) ? (viewState.puzzleType || 'wordsearch') : puzzleType;
@@ -67,6 +66,10 @@ function HackGame({ lang, state, onSuccess, onCancel, onSnapshot, onDone, readOn
     }, 100);
   }, [onSnapshot, activePuzzleType]);
 
+  React.useEffect(() => {
+    return () => { if (_snapTimer.current) clearTimeout(_snapTimer.current); };
+  }, []);
+
   return (
     <div className="modal-overlay hack-overlay" style={{overflowY: 'auto', padding: '10px', alignItems: 'flex-start'}}>
       <div className="modal hack-modal">
@@ -88,6 +91,8 @@ function HackGame({ lang, state, onSuccess, onCancel, onSnapshot, onDone, readOn
               if (!readOnly) {
                 setDone(true);
                 SCPAudio.granted();
+                // reward is host-local (useMemo). App.hackHostCallbacks.onDone broadcasts it as hackReward,
+                // which viewers receive as viewState.reward → effectiveReward. Keep in sync with App.jsx Task 5.
                 if (onDone) onDone(reward);
               }
             }}
@@ -150,7 +155,7 @@ function WordSearchPuzzle({ lang, onWin, onStateChange, readOnlySnapshot }) {
       foundCells: Array.from(foundCellsMap),
       currentCells: current ? current.cells : [],
     });
-  }, [found, current, foundCellsMap]);
+  }, [found, current, foundCellsMap, onStateChange]);
 
   const cellAt = (e) => {
     if (!boardRef.current) return null;
