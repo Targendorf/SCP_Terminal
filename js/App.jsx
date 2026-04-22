@@ -1,5 +1,5 @@
 // Корневое приложение
-const { useState: _useState, useEffect: _useEffect, useCallback: _useCallback } = React;
+const { useState: _useState, useEffect: _useEffect, useCallback: _useCallback, useRef: _useRef } = React;
 
 const DEFAULT_TWEAKS = /*EDITMODE-BEGIN*/{
   "lang": "ru",
@@ -8,7 +8,6 @@ const DEFAULT_TWEAKS = /*EDITMODE-BEGIN*/{
   "noise": 0.08,
   "vibration": 1,
   "sound": true,
-  "hum": true,
   "color": "green"
 }/*EDITMODE-END*/;
 
@@ -17,19 +16,34 @@ const LS_TWEAKS = 'scp_terminal_tweaks_v1';
 function loadTweaks() {
   try {
     const raw = localStorage.getItem(LS_TWEAKS);
-    if (raw) return { ...DEFAULT_TWEAKS, ...JSON.parse(raw) };
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      delete parsed.hum; // устарелое поле
+      return { ...DEFAULT_TWEAKS, ...parsed };
+    }
   } catch (e) {}
   return { ...DEFAULT_TWEAKS };
 }
 
+// Админ-маршрут: ?admin=1 — минует мультиплеер и ведёт сразу на ввод мастер-пароля.
+const IS_ADMIN_ROUTE = new URLSearchParams(location.search).get('admin') === '1';
+
 function App() {
-  const [stage, setStage] = _useState('boot'); // boot | login | terminal | admin
+  // stage: boot | login | terminal | admin | adminLogin
+  const [stage, setStage] = _useState(IS_ADMIN_ROUTE ? 'adminLogin' : 'boot');
   const [state, setState] = useStore();
   const [currentTerm, setCurrentTerm] = _useState(null);
   const [tweaks, setTweaksRaw] = _useState(loadTweaks);
   const [editMode, setEditMode] = _useState(false);
   const [lockInfo, setLockInfo] = _useState({ fails: 0, until: 0 });
   const [previewFromAdmin, setPreviewFromAdmin] = _useState(null);
+
+  // Session (мультиплеер) — не инициализируется в админ-режиме
+  const [sessionRole, setSessionRole] = _useState('init'); // 'init' | 'host' | 'viewer' | 'offline'
+  const [sessionStatus, setSessionStatus] = _useState('init');
+  const [peers, setPeers] = _useState([]);
+  const [cursors, setCursors] = _useState([]);
+  const [remoteNav, setRemoteNav] = _useState(null); // зритель: nav от хоста
 
   const setTweaks = (patch) => {
     setTweaksRaw(t => {
@@ -40,7 +54,7 @@ function App() {
     });
   };
 
-  // Применение CSS-переменных
+  // Применение CSS-переменных + звук
   _useEffect(() => {
     const r = document.documentElement.style;
     r.setProperty('--scanline-intensity', String(tweaks.scanlines));
@@ -48,7 +62,6 @@ function App() {
     r.setProperty('--noise-intensity', String(tweaks.noise));
     r.setProperty('--vibration-intensity', String(Math.max(0.01, tweaks.vibration)));
 
-    // Смена цвета фосфора
     const palettes = {
       green: { phosphor: '#33ff66', dim: '#1fa040', bright: '#b5ffcb' },
       amber: { phosphor: '#ffb000', dim: '#aa7500', bright: '#ffd880' },
@@ -60,7 +73,6 @@ function App() {
     r.setProperty('--phosphor-bright', p.bright);
 
     SCPAudio.setEnabled(tweaks.sound);
-    if (tweaks.sound && tweaks.hum) { SCPAudio.startHum(); } else { SCPAudio.stopHum(); }
   }, [tweaks]);
 
   // Edit mode handshake
@@ -75,24 +87,61 @@ function App() {
     return () => window.removeEventListener('message', handler);
   }, []);
 
-  // Запуск аудио-контекста на первый клик
+  const stateRef = _useRef(state);
+  _useEffect(() => { stateRef.current = state; }, [state]);
+
+  // === SESSION INIT ===
   _useEffect(() => {
-    const unlock = () => {
-      if (tweaks.sound && tweaks.hum) SCPAudio.startHum();
-      window.removeEventListener('click', unlock);
-      window.removeEventListener('keydown', unlock);
+    if (IS_ADMIN_ROUTE) { SCPSession.disable(); setSessionRole('offline'); setSessionStatus('admin'); return; }
+    SCPSession.init({
+      onRole: (role) => setSessionRole(role),
+      onStatus: (s) => setSessionStatus(s),
+      onPeers: (list) => setPeers(list),
+      onCursors: (list) => setCursors(list),
+      onState: (shared) => {
+        if (!shared) return;
+        if (shared.stage) setStage(shared.stage);
+        if (shared.currentTermId) {
+          const t = (stateRef.current.terminals || []).find(x => x.id === shared.currentTermId);
+          if (t) setCurrentTerm(t);
+        } else if (shared.currentTermId === null) {
+          setCurrentTerm(null);
+        }
+        if (shared.nav) setRemoteNav(shared.nav);
+      },
+    });
+  }, []);
+
+  const isHost = sessionRole === 'host' || sessionRole === 'offline';
+  const isViewer = sessionRole === 'viewer';
+
+  // Хост бродкастит стейт
+  _useEffect(() => {
+    if (IS_ADMIN_ROUTE) return;
+    if (sessionRole !== 'host') return;
+    SCPSession.broadcastState({
+      stage,
+      currentTermId: currentTerm ? currentTerm.id : null,
+      nav: remoteNav, // хост сам обновит nav через onNav
+    });
+  }, [sessionRole, stage, currentTerm && currentTerm.id, remoteNav && remoteNav.view, remoteNav && remoteNav.folderIdx, remoteNav && remoteNav.fileIdx]);
+
+  // Трекинг курсора
+  _useEffect(() => {
+    if (IS_ADMIN_ROUTE) return;
+    const onMove = (e) => {
+      const x = e.clientX / window.innerWidth;
+      const y = e.clientY / window.innerHeight;
+      SCPSession.sendCursor(x, y);
     };
-    window.addEventListener('click', unlock);
-    window.addEventListener('keydown', unlock);
-    return () => {
-      window.removeEventListener('click', unlock);
-      window.removeEventListener('keydown', unlock);
-    };
+    window.addEventListener('mousemove', onMove);
+    return () => window.removeEventListener('mousemove', onMove);
   }, []);
 
   const handleLogin = (term) => {
     setCurrentTerm(term);
     setStage('terminal');
+    setRemoteNav({ view: 'folders', folderIdx: 0, fileIdx: 0 });
     setLockInfo({ fails: 0, until: 0 });
   };
   const handleMasterUnlock = () => {
@@ -104,23 +153,16 @@ function App() {
     setStage('login');
   };
   const exitAdmin = () => {
-    if (previewFromAdmin) {
-      setPreviewFromAdmin(null);
-      setStage('admin');
-      return;
-    }
+    if (previewFromAdmin) { setPreviewFromAdmin(null); setStage('admin'); return; }
+    if (IS_ADMIN_ROUTE) { setStage('adminLogin'); return; }
     setStage('login');
   };
-  const previewTerm = (t) => {
-    setCurrentTerm(t);
-    setPreviewFromAdmin(t);
-    setStage('terminal');
-  };
-  const exitPreview = () => {
-    setCurrentTerm(null);
-    setPreviewFromAdmin(null);
-    setStage('admin');
-  };
+  const previewTerm = (t) => { setCurrentTerm(t); setPreviewFromAdmin(t); setStage('terminal'); };
+  const exitPreview = () => { setCurrentTerm(null); setPreviewFromAdmin(null); setStage('admin'); };
+
+  const onHostNav = _useCallback((nav) => {
+    setRemoteNav(nav);
+  }, []);
 
   return (
     <>
@@ -133,6 +175,15 @@ function App() {
 
         <div className="crt-content">
           {stage === 'boot' && <BootScreen lang={tweaks.lang} onDone={() => setStage('login')} />}
+
+          {stage === 'adminLogin' && (
+            <AdminLoginScreen
+              lang={tweaks.lang}
+              state={state}
+              onMasterUnlock={handleMasterUnlock}
+            />
+          )}
+
           {stage === 'login' && (
             <PasswordScreen
               lang={tweaks.lang}
@@ -141,17 +192,25 @@ function App() {
               onMasterUnlock={handleMasterUnlock}
               lockInfo={lockInfo}
               setLockInfo={setLockInfo}
+              canInput={isHost && !isViewer}
             />
           )}
+
           {stage === 'terminal' && currentTerm && (
             <TerminalBrowser
               lang={tweaks.lang}
               terminal={currentTerm}
               state={state}
               onExit={previewFromAdmin ? exitPreview : exitTerminal}
+              readOnly={isViewer}
+              syncNav={isViewer ? remoteNav : null}
+              onNav={!isViewer ? onHostNav : null}
             />
           )}
         </div>
+
+        {/* Курсоры других пиров */}
+        {!IS_ADMIN_ROUTE && <CursorOverlay cursors={cursors} />}
       </div>
 
       {stage === 'admin' && (
@@ -164,8 +223,102 @@ function App() {
         />
       )}
 
+      {!IS_ADMIN_ROUTE && <SessionBadge role={sessionRole} status={sessionStatus} peers={peers} lang={tweaks.lang} />}
+
       {<TweaksPanel tweaks={tweaks} setTweaks={setTweaks} />}
     </>
+  );
+}
+
+// === Оверлей курсоров других пиров ===
+function CursorOverlay({ cursors }) {
+  if (!cursors || !cursors.length) return null;
+  return (
+    <div className="cursor-overlay">
+      {cursors.map(c => (
+        <div
+          key={c.id}
+          className="peer-cursor"
+          style={{ left: (c.x * 100) + '%', top: (c.y * 100) + '%', color: c.color }}
+        >
+          <svg width="18" height="22" viewBox="0 0 18 22" style={{filter: 'drop-shadow(0 0 3px ' + c.color + ')'}}>
+            <path d="M1 1 L1 17 L6 12 L9 20 L12 19 L9 11 L16 11 Z" fill={c.color} stroke="#000" strokeWidth="1" />
+          </svg>
+          <span className="peer-label" style={{background: c.color, color: '#000'}}>{c.name}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// === Индикатор роли в сессии ===
+function SessionBadge({ role, status, peers, lang }) {
+  const t = lang === 'ru';
+  let text = '';
+  let cls = '';
+  if (status === 'init' || status === 'connecting') { text = t ? 'ПОДКЛЮЧЕНИЕ...' : 'CONNECTING...'; cls = 'session-init'; }
+  else if (role === 'host') { text = (t ? 'КОНТРОЛЬ · ' : 'CONTROL · ') + (peers.length) + (t ? ' уз' : ' nodes'); cls = 'session-host'; }
+  else if (role === 'viewer') { text = (t ? 'ЗРИТЕЛЬ · ' : 'VIEWER · ') + (peers.length) + (t ? ' уз' : ' nodes'); cls = 'session-viewer'; }
+  else if (status === 'offline') { text = t ? 'OFFLINE' : 'OFFLINE'; cls = 'session-offline'; }
+  else if (status === 'disconnected') { text = t ? 'РАЗРЫВ' : 'DISCONNECTED'; cls = 'session-offline'; }
+  else return null;
+
+  const self = SCPSession.selfName ? (' [' + SCPSession.selfName + ']') : '';
+  return <div className={'session-badge ' + cls}>{text}{self}</div>;
+}
+
+// === Экран входа админа (отдельный маршрут ?admin=1) ===
+function AdminLoginScreen({ lang, state, onMasterUnlock }) {
+  const [pw, setPw] = React.useState('');
+  const [err, setErr] = React.useState(null);
+  const ref = React.useRef(null);
+  React.useEffect(() => { if (ref.current) ref.current.focus(); }, []);
+  const t = lang === 'ru';
+
+  const submit = (e) => {
+    e.preventDefault();
+    if ((pw || '').toLowerCase() === (state.masterPassword || '').toLowerCase() && pw) {
+      SCPAudio.granted();
+      SCPStorage.appendLog({ type: 'admin-bypass', password: '[MASTER]', ok: true });
+      setTimeout(() => onMasterUnlock(), 300);
+    } else {
+      SCPAudio.denied();
+      SCPStorage.appendLog({ type: 'admin-bypass', password: pw, ok: false });
+      setErr(t ? 'ОТКАЗАНО' : 'DENIED');
+      setPw('');
+    }
+  };
+
+  return (
+    <div className="col" style={{height: '100%', justifyContent: 'center', alignItems: 'center', gap: '1.2em'}}>
+      <pre className="ascii-title t-amber" style={{textAlign: 'center'}}>{`
+ ╔════════════════════════════════════════╗
+ ║    ADMINISTRATOR · СЛУЖЕБНЫЙ ВХОД     ║
+ ╚════════════════════════════════════════╝
+`}</pre>
+      <div className="mono t-dim" style={{textAlign: 'center'}}>
+        {t
+          ? '> Служебный вход. Мультиплеер-сессия не активна.\n> Введите мастер-пароль.'
+          : '> Service entrance. Multiplayer session is inactive.\n> Enter master password.'}
+      </div>
+      <form onSubmit={submit} className="input-line" style={{width: 'min(420px, 90vw)'}}>
+        <span className="t-amber">MASTER:</span>
+        <input
+          ref={ref}
+          type="password"
+          autoComplete="off"
+          spellCheck="false"
+          value={pw}
+          onChange={e => { setPw(e.target.value); if (e.target.value) SCPAudio.key(); }}
+          placeholder={t ? 'мастер-пароль' : 'master password'}
+        />
+        <span className="caret"></span>
+      </form>
+      {err && <div className="mono t-red">{'>> ' + err + ' <<'}</div>}
+      <div className="mono t-dim" style={{fontSize: 12, textAlign: 'center'}}>
+        {t ? 'Чтобы вернуться к общему терминалу — уберите ?admin=1 из адреса.' : 'Remove ?admin=1 from URL to return to the shared terminal.'}
+      </div>
+    </div>
   );
 }
 

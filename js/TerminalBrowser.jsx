@@ -1,14 +1,28 @@
 // Браузер файлов: навигация по папкам и чтение файлов
-function TerminalBrowser({ lang, terminal, state, onExit }) {
+function TerminalBrowser({ lang, terminal, state, onExit, readOnly = false, syncNav = null, onNav = null }) {
   // view: 'folders' | 'files' | 'file' | 'cmd'
-  const [view, setView] = useState('folders');
-  const [folderIdx, setFolderIdx] = useState(0);
-  const [fileIdx, setFileIdx] = useState(0);
+  const [view, setView] = useState(syncNav?.view || 'folders');
+  const [folderIdx, setFolderIdx] = useState(syncNav?.folderIdx || 0);
+  const [fileIdx, setFileIdx] = useState(syncNav?.fileIdx || 0);
   const [cmdMode, setCmdMode] = useState(false);
   const [cmd, setCmd] = useState('');
   const [cmdLog, setCmdLog] = useState([]);
   const cmdInputRef = useRef(null);
   const fileViewRef = useRef(null);
+
+  // Зритель получает обновления навигации от хоста
+  useEffect(() => {
+    if (!readOnly || !syncNav) return;
+    if (syncNav.view !== view) setView(syncNav.view);
+    if (syncNav.folderIdx !== folderIdx) setFolderIdx(syncNav.folderIdx);
+    if (syncNav.fileIdx !== fileIdx) setFileIdx(syncNav.fileIdx);
+  }, [syncNav && syncNav.view, syncNav && syncNav.folderIdx, syncNav && syncNav.fileIdx, readOnly]);
+
+  // Хост шлёт навигацию
+  useEffect(() => {
+    if (readOnly || !onNav) return;
+    onNav({ view, folderIdx, fileIdx });
+  }, [view, folderIdx, fileIdx, readOnly]);
 
   const folders = terminal.folders || [];
   const curFolder = folders[folderIdx];
@@ -21,6 +35,7 @@ function TerminalBrowser({ lang, terminal, state, onExit }) {
 
   // Клавиатурная навигация
   useEffect(() => {
+    if (readOnly) return;
     const h = (e) => {
       if (cmdMode) return;
       if (e.key === 'Escape') {
@@ -66,7 +81,7 @@ function TerminalBrowser({ lang, terminal, state, onExit }) {
     };
     window.addEventListener('keydown', h);
     return () => window.removeEventListener('keydown', h);
-  }, [view, folderIdx, fileIdx, folders, files, cmdMode, onExit]);
+  }, [view, folderIdx, fileIdx, folders, files, cmdMode, onExit, readOnly]);
 
   // Выполнение команды
   const runCmd = (raw) => {
@@ -143,8 +158,12 @@ function TerminalBrowser({ lang, terminal, state, onExit }) {
   }, [curFile, lang]);
   const [typedText, typedDone] = useTypewriter(view === 'file' ? fileText : '', 4);
 
+  const pickFolder = (i) => { if (readOnly) return; setFolderIdx(i); setView('files'); setFileIdx(0); SCPAudio.beep(620, 0.04); };
+  const pickFile = (i) => { if (readOnly) return; setFileIdx(i); setView('file'); SCPAudio.beep(620, 0.04); };
+  const backFolders = () => { if (readOnly) return; setView('folders'); };
+
   return (
-    <div className="col" style={{height: '100%', gap: '0.6em'}}>
+    <div className="col" style={{height: '100%', gap: '0.6em', pointerEvents: readOnly ? 'none' : 'auto'}}>
       {/* HEADER */}
       <div className="screen-header mono">
         <div>
@@ -171,10 +190,10 @@ function TerminalBrowser({ lang, terminal, state, onExit }) {
       {/* CONTENT */}
       <div className="grow" style={{display: 'flex', flexDirection: 'column', minHeight: 0}}>
         {view === 'folders' && (
-          <FolderList lang={lang} folders={folders} activeIdx={folderIdx} onPick={(i) => { setFolderIdx(i); setView('files'); setFileIdx(0); SCPAudio.beep(620, 0.04); }} />
+          <FolderList lang={lang} folders={folders} activeIdx={folderIdx} onPick={pickFolder} />
         )}
         {view === 'files' && curFolder && (
-          <FileList lang={lang} folder={curFolder} activeIdx={fileIdx} onPick={(i) => { setFileIdx(i); setView('file'); SCPAudio.beep(620, 0.04); }} onBack={() => setView('folders')} />
+          <FileList lang={lang} folder={curFolder} activeIdx={fileIdx} onPick={pickFile} onBack={backFolders} />
         )}
         {view === 'file' && curFile && (
           <FileViewer lang={lang} file={curFile} text={typedText} done={typedDone} viewRef={fileViewRef} />

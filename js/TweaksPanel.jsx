@@ -56,15 +56,6 @@ function TweaksPanel({ tweaks, setTweaks }) {
       </div>
 
       <div className="tweak-row">
-        <label>
-          <input type="checkbox" checked={tweaks.hum}
-            onChange={e => setTweaks({hum: e.target.checked})}
-            style={{marginRight: 6}} />
-          CRT HUM / ГУЛ
-        </label>
-      </div>
-
-      <div className="tweak-row">
         <label>COLOR / ЦВЕТ</label>
         <select value={tweaks.color} onChange={e => setTweaks({color: e.target.value})}>
           <option value="green">Phosphor Green (P1)</option>

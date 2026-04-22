@@ -1,9 +1,10 @@
 // Экран ввода пароля
-function PasswordScreen({ lang, state, onLogin, onMasterUnlock, lockInfo, setLockInfo }) {
+function PasswordScreen({ lang, state, onLogin, onMasterUnlock, lockInfo, setLockInfo, canInput = true }) {
   const [pw, setPw] = useState('');
   const [checking, setChecking] = useState(false);
   const [msg, setMsg] = useState(null);
   const [hackOpen, setHackOpen] = useState(false);
+  const [foundOpen, setFoundOpen] = useState(false);
   const inputRef = useRef(null);
 
   useEffect(() => {
@@ -21,6 +22,7 @@ function PasswordScreen({ lang, state, onLogin, onMasterUnlock, lockInfo, setLoc
 
   const submit = async (e) => {
     if (e) e.preventDefault();
+    if (!canInput) return;
     if (checking || isLocked) return;
     if (!pw.trim()) return;
     setChecking(true);
@@ -82,8 +84,18 @@ function PasswordScreen({ lang, state, onLogin, onMasterUnlock, lockInfo, setLoc
 
   const lockSecLeft = isLocked ? Math.ceil((lockInfo.until - Date.now()) / 1000) : 0;
 
+  const revealedTerms = (state.terminals || []).filter(x => x.hintRevealed);
+
   return (
     <>
+    {foundOpen && (
+      <FoundPasswordsModal
+        lang={lang}
+        terms={revealedTerms}
+        onClose={() => setFoundOpen(false)}
+        onPick={(pw) => { setFoundOpen(false); setPw(pw); setTimeout(() => inputRef.current && inputRef.current.focus(), 50); }}
+      />
+    )}
     {hackOpen && (
       <HackGame
         lang={lang}
@@ -139,12 +151,19 @@ function PasswordScreen({ lang, state, onLogin, onMasterUnlock, lockInfo, setLoc
           autoComplete="off"
           spellCheck="false"
           value={pw}
-          disabled={checking || isLocked}
+          disabled={checking || isLocked || !canInput}
           onChange={e => { setPw(e.target.value); if (e.target.value) SCPAudio.key(); }}
-          placeholder={isLocked ? (lang === 'ru' ? 'ЗАБЛОКИРОВАНО' : 'LOCKED') : (lang === 'ru' ? 'введите пароль' : 'enter password')}
+          placeholder={!canInput ? (lang === 'ru' ? 'РЕЖИМ ЗРИТЕЛЯ' : 'VIEWER MODE') : (isLocked ? (lang === 'ru' ? 'ЗАБЛОКИРОВАНО' : 'LOCKED') : (lang === 'ru' ? 'введите пароль' : 'enter password'))}
         />
-        {!checking && <span className="caret"></span>}
+        {!checking && canInput && <span className="caret"></span>}
       </form>
+
+      {revealedTerms.length > 0 && (
+        <button className="found-pw-btn" onClick={() => setFoundOpen(true)}>
+          {'[' + revealedTerms.length + ']  '}
+          {lang === 'ru' ? 'НАЙДЕННЫЕ ПАРОЛИ' : 'FOUND PASSWORDS'}
+        </button>
+      )}
 
       {checking && (
         <div className="mono t-dim" style={{marginTop: '0.8em'}}>
@@ -176,6 +195,51 @@ function PasswordScreen({ lang, state, onLogin, onMasterUnlock, lockInfo, setLoc
       </div>
     </div>
     </>
+  );
+}
+
+function FoundPasswordsModal({ lang, terms, onClose, onPick }) {
+  const t = lang === 'ru';
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal found-pw-modal" onClick={e => e.stopPropagation()}>
+        <h3 className="t-bright" style={{margin: 0}}>
+          {t ? '// НАЙДЕННЫЕ ПАРОЛИ //' : '// FOUND PASSWORDS //'}
+        </h3>
+        <div className="mono t-dim" style={{fontSize: 13, marginBottom: 6}}>
+          {t
+            ? '> Пароли, собранные в ходе настольной игры. Кликните по паролю — он подставится в поле ввода.'
+            : '> Passwords collected during the tabletop game. Click a password to fill the input.'}
+        </div>
+        {terms.length === 0 && (
+          <div className="mono t-dim">{t ? '[ПУСТО]' : '[EMPTY]'}</div>
+        )}
+        <div className="found-pw-list">
+          {terms.map(term => (
+            <div key={term.id} className="found-pw-item">
+              <div className="found-pw-head">
+                <span className="t-bright">{lang === 'ru' ? (term.nameRu || term.name) : term.name}</span>
+                <span className="t-dim"> · {term.hostname}</span>
+                <span className={'pill lvl-' + (term.level || 1)} style={{marginLeft: 8}}>L{term.level || 1}</span>
+              </div>
+              <button
+                className="found-pw-code"
+                onClick={() => onPick(term.password)}
+                title={t ? 'Подставить в поле ввода' : 'Use this password'}
+              >
+                {term.password}
+              </button>
+              {term.hintNotes && (
+                <div className="mono t-dim found-pw-note">{term.hintNotes}</div>
+              )}
+            </div>
+          ))}
+        </div>
+        <div className="modal-actions">
+          <button className="btn" onClick={onClose}>{t ? 'ЗАКРЫТЬ' : 'CLOSE'}</button>
+        </div>
+      </div>
+    </div>
   );
 }
 

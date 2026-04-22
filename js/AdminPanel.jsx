@@ -248,6 +248,46 @@ function AdminPanel({ lang, state, setState, onExit, onPreview }) {
             <input type="text" value={state.masterPassword || ''}
               onChange={e => setState(s => ({...s, masterPassword: e.target.value}))} />
           </div>
+
+          <div className="field" style={{padding: 10, border: '1px dashed var(--phosphor-dim)'}}>
+            <label style={{color: 'var(--phosphor-bright)'}}>
+              {t ? '🔑 ИЗВЕСТНЫЕ ПАРОЛИ (ВИДНЫ ИГРОКАМ)' : '🔑 KNOWN PASSWORDS (VISIBLE TO PLAYERS)'}
+            </label>
+            <div className="mono t-dim" style={{fontSize: 13, marginTop: 4, marginBottom: 10, lineHeight: 1.3}}>
+              {t
+                ? 'Отметьте пароли, которые игроки "нашли" в настольной игре. В экране логина у них появится кнопка НАЙДЕННЫЕ ПАРОЛИ с выбранными записями и вашими заметками.'
+                : 'Check passwords the players "found" in the tabletop game. On the login screen they will see a FOUND PASSWORDS button with the selected entries and your notes.'}
+            </div>
+            {state.terminals.map(term => {
+              const setHint = (patch) => setState(s => ({
+                ...s,
+                terminals: s.terminals.map(x => x.id === term.id ? { ...x, ...patch } : x),
+              }));
+              return (
+                <div key={term.id} className="hint-row">
+                  <label style={{display: 'flex', alignItems: 'center', gap: 8, color: 'var(--phosphor-bright)', textTransform: 'none', fontSize: 15, marginBottom: 6}}>
+                    <input type="checkbox" checked={!!term.hintRevealed}
+                      onChange={e => setHint({ hintRevealed: e.target.checked })}
+                      style={{width: 'auto', accentColor: 'var(--phosphor)'}} />
+                    <span>
+                      <span className="t-bright">{lang === 'ru' ? (term.nameRu || term.name) : term.name}</span>
+                      <span className="t-dim"> · {term.hostname} · </span>
+                      <span className="t-amber" style={{letterSpacing: '0.08em'}}>{term.password}</span>
+                    </span>
+                  </label>
+                  {term.hintRevealed && (
+                    <textarea
+                      placeholder={t ? 'Заметка для игроков (например: "найден в кармане д-ра Клефа")' : 'Note for players (e.g. "found in Dr. Clef\u2019s pocket")'}
+                      value={term.hintNotes || ''}
+                      onChange={e => setHint({ hintNotes: e.target.value })}
+                      style={{minHeight: 60, fontSize: 14}}
+                    />
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
           <div className="field" style={{padding: 10, border: '1px dashed var(--amber)'}}>
             <label style={{cursor: 'pointer', color: 'var(--amber)', display: 'flex', alignItems: 'center', gap: 8}}>
               <input type="checkbox" checked={!!state.virusDiskReady}
