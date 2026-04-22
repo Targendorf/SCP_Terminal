@@ -32,12 +32,19 @@ const PUZZLE_TITLES = {
   typer:      { ru: 'ВВОД КОДА', en: 'SPEED TYPER' },
 };
 
-function HackGame({ lang, state, onSuccess, onCancel }) {
+function HackGame({ lang, state, onSuccess, onCancel, onSnapshot, onDone, readOnly, viewState }) {
   const t = lang === 'ru';
   const [done, setDone] = React.useState(false);
   const reward = React.useMemo(() => getHackReward(state, lang), []);
   const puzzleType = React.useMemo(() => pickHackPuzzle(state.hackPuzzleType), []);
   const title = PUZZLE_TITLES[puzzleType][t ? 'ru' : 'en'];
+
+  // When viewer, use the puzzle type from host's broadcast; otherwise use locally picked type.
+  const activePuzzleType = (readOnly && viewState) ? (viewState.puzzleType || 'wordsearch') : puzzleType;
+  const activeTitle = PUZZLE_TITLES[activePuzzleType]?.[t ? 'ru' : 'en'] || activePuzzleType;
+  const effectiveDone   = (readOnly && viewState) ? (viewState.done   || false) : done;
+  const effectiveReward = (readOnly && viewState) ? (viewState.reward || null)  : reward;
+  const effectiveSnap   = (readOnly && viewState) ? (viewState.snapshot || null) : null;
 
   const PUZZLES = {
     wordsearch: WordSearchPuzzle,
@@ -49,33 +56,62 @@ function HackGame({ lang, state, onSuccess, onCancel }) {
     freq:       FrequencyPuzzle,
     typer:      TyperPuzzle,
   };
-  const Puzzle = PUZZLES[puzzleType] || WordSearchPuzzle;
+  const Puzzle = PUZZLES[activePuzzleType] || WordSearchPuzzle;
+
+  const _snapTimer = React.useRef(null);
+  const handleSnapshot = React.useCallback((puzzleState) => {
+    if (!onSnapshot) return;
+    if (_snapTimer.current) clearTimeout(_snapTimer.current);
+    _snapTimer.current = setTimeout(() => {
+      onSnapshot({ puzzleType: activePuzzleType, puzzleState });
+    }, 100);
+  }, [onSnapshot, activePuzzleType]);
 
   return (
     <div className="modal-overlay hack-overlay" style={{overflowY: 'auto', padding: '10px', alignItems: 'flex-start'}}>
       <div className="modal hack-modal">
+        {readOnly && (
+          <div className="mono t-amber" style={{textAlign: 'center', fontSize: 13, padding: '2px 0', borderBottom: '1px solid var(--amber)', marginBottom: 4}}>
+            {'>> '}{t ? 'ЗРИТЕЛЬСКИЙ РЕЖИМ — ТОЛЬКО ПРОСМОТР' : 'VIEWER MODE — READ ONLY'}{' <<'}
+          </div>
+        )}
         <div className="hack-head">
           <h3 className="t-amber" style={{margin: 0}}>
-            {'[' + (t ? 'ВИРУС-ДИСКЕТА' : 'VIRUS DISK') + ' // ' + title + ']'}
+            {'[' + (t ? 'ВИРУС-ДИСКЕТА' : 'VIRUS DISK') + ' // ' + activeTitle + ']'}
           </h3>
         </div>
 
-        {!done && <Puzzle lang={lang} onWin={() => { setDone(true); SCPAudio.granted(); }} />}
+        {!effectiveDone && (
+          <Puzzle
+            lang={lang}
+            onWin={() => {
+              if (!readOnly) {
+                setDone(true);
+                SCPAudio.granted();
+                if (onDone) onDone(reward);
+              }
+            }}
+            onStateChange={!readOnly ? handleSnapshot : null}
+            readOnlySnapshot={readOnly ? effectiveSnap : null}
+          />
+        )}
 
-        {done && reward && (
+        {effectiveDone && effectiveReward && (
           <div className="mono hack-reward">
             <div className="t-bright">{t ? '>> ДОСТУП РАЗРЕШЁН <<' : '>> ACCESS GRANTED <<'}</div>
-            <div className="t-dim">{t ? 'Пароль от ' : 'Password for '}{reward.name}:</div>
-            <div className="t-amber" style={{fontSize: 22, letterSpacing: '0.1em', marginTop: 4}}>{reward.pw}</div>
+            <div className="t-dim">{t ? 'Пароль от ' : 'Password for '}{effectiveReward.name}:</div>
+            <div className="t-amber" style={{fontSize: 22, letterSpacing: '0.1em', marginTop: 4}}>{effectiveReward.pw}</div>
           </div>
         )}
-        {done && !reward && (
+        {effectiveDone && !effectiveReward && (
           <div className="mono t-red">{t ? 'ЦЕЛЬ НЕ НАСТРОЕНА' : 'NO TARGET CONFIGURED'}</div>
         )}
 
         <div className="modal-actions" style={{marginTop: 4}}>
           <button className="btn" onClick={onCancel}>{t ? 'ОТМЕНА' : 'CANCEL'}</button>
-          {done && reward && <button className="btn" onClick={() => onSuccess(reward)}>{t ? 'ИСПОЛЬЗОВАТЬ' : 'USE'}</button>}
+          {effectiveDone && effectiveReward && !readOnly && (
+            <button className="btn" onClick={() => onSuccess(effectiveReward)}>{t ? 'ИСПОЛЬЗОВАТЬ' : 'USE'}</button>
+          )}
         </div>
       </div>
     </div>
@@ -85,7 +121,7 @@ function HackGame({ lang, state, onSuccess, onCancel }) {
 // ======================================================================
 // 1. WORD SEARCH — поиск слов 15×15. Только → и ↓. Слова ≥ 4 букв.
 // ======================================================================
-function WordSearchPuzzle({ lang, onWin }) {
+function WordSearchPuzzle({ lang, onWin, onStateChange, readOnlySnapshot }) {
   const SIZE = 15;
   const t = lang === 'ru';
   const WORDS_RU = ['КЕТЕР','ЕВКЛИД','АНОМАЛ','СЕКТОР','ФОНД','ОБЪЕКТ','ПРОТОКОЛ','АРХИВ','ЗОНА','СЕКРЕТ','ДОСТУП','ПРОРЫВ','ПРИЗРАК','ВАКЦИНА','БАРЬЕР','СИГНАЛ','РАЗЛОМ','ЦИФРА','МОЛНИЯ','АГЕНТ','ГРУППА','ОХРАНА','МАРКЕР','ДОКЛАД','СКАНЕР','КОДОН','ГАММА','ОМЕГА','РЕАКТОР','МУТАНТ','ВИРУС','МАЯК','ПЕЩЕРА','СИЯНИЕ','ПОРТАЛ'];
@@ -106,6 +142,15 @@ function WordSearchPuzzle({ lang, onWin }) {
       onWin();
     }
   }, [found]);
+
+  React.useEffect(() => {
+    if (!onStateChange) return;
+    onStateChange({
+      found,
+      foundCells: Array.from(foundCellsMap),
+      currentCells: current ? current.cells : [],
+    });
+  }, [found, current, foundCellsMap]);
 
   const cellAt = (e) => {
     if (!boardRef.current) return null;
@@ -145,8 +190,12 @@ function WordSearchPuzzle({ lang, onWin }) {
     } else { SCPAudio.error(); setShake(true); setTimeout(() => setShake(false), 300); }
     setDragging(null); setCurrent(null);
   };
-  const isInCurrent = (r, c) => current && current.cells.some(([rr, cc]) => rr === r && cc === c);
-  const isFound = (r, c) => foundCellsMap.has(r + ',' + c);
+
+  const roFound      = readOnlySnapshot ? (readOnlySnapshot.found || []) : found;
+  const roFoundCells = readOnlySnapshot ? new Set(readOnlySnapshot.foundCells || []) : foundCellsMap;
+  const roCurrent    = readOnlySnapshot ? (readOnlySnapshot.currentCells || []) : (current ? current.cells : []);
+  const isInCurrent  = (r, c) => roCurrent.some(([rr, cc]) => rr === r && cc === c);
+  const isFoundCell  = (r, c) => roFoundCells.has(r + ',' + c);
 
   return (
     <>
@@ -155,18 +204,29 @@ function WordSearchPuzzle({ lang, onWin }) {
       </div>
       <div className="hack-words mono" style={{fontSize: 14}}>
         {game.words.map((w, i) => (
-          <span key={i} className={found.includes(i) ? 't-bright hack-word-found' : 't-dim'}>
-            {found.includes(i) ? '✓ ' + w : '• ' + w.replace(/./g, '_')}
+          <span key={i} className={roFound.includes(i) ? 't-bright hack-word-found' : 't-dim'}>
+            {roFound.includes(i) ? '✓ ' + w : '• ' + w.replace(/./g, '_')}
             {i < game.words.length - 1 ? '   ' : ''}
           </span>
         ))}
       </div>
       <div className="hack-grid-wrap">
-        <div ref={boardRef} className={'hack-grid hack-grid-15' + (shake ? ' hack-shake' : '')}
-          onMouseDown={onStart} onMouseMove={onMove} onMouseUp={onEnd} onMouseLeave={onEnd}
-          onTouchStart={onStart} onTouchMove={onMove} onTouchEnd={onEnd}>
+        <div
+          ref={boardRef}
+          className={'hack-grid hack-grid-15' + (shake ? ' hack-shake' : '')}
+          onMouseDown={readOnlySnapshot ? undefined : onStart}
+          onMouseMove={readOnlySnapshot ? undefined : onMove}
+          onMouseUp={readOnlySnapshot ? undefined : onEnd}
+          onMouseLeave={readOnlySnapshot ? undefined : onEnd}
+          onTouchStart={readOnlySnapshot ? undefined : onStart}
+          onTouchMove={readOnlySnapshot ? undefined : onMove}
+          onTouchEnd={readOnlySnapshot ? undefined : onEnd}
+        >
           {game.grid.map((row, r) => row.map((ch, c) => (
-            <div key={r + '-' + c} className={'hack-cell' + (isFound(r, c) ? ' found' : '') + (isInCurrent(r, c) ? ' selecting' : '')}>{ch}</div>
+            <div key={r + '-' + c}
+              className={'hack-cell' + (isFoundCell(r, c) ? ' found' : '') + (isInCurrent(r, c) ? ' selecting' : '')}>
+              {ch}
+            </div>
           )))}
         </div>
       </div>
