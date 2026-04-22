@@ -777,3 +777,200 @@ html, body {
   white-space: nowrap;
   text-shadow: none;
 }
+
+/* ===== Hack puzzles (shared) ===== */
+.hack-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 8px; flex-wrap: wrap; }
+.hack-reward { font-family: var(--mono); color: var(--amber); letter-spacing: 0.08em; font-size: 13px; }
+.hack-overlay {
+  position: absolute; inset: 0;
+  background: rgba(2, 6, 4, 0.88);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 14px; z-index: 5;
+  border: 1px solid var(--phosphor);
+  text-shadow: 0 0 6px var(--phosphor);
+}
+
+/* ===== Sequence Lock ===== */
+.seq-box { display: flex; flex-direction: column; gap: 12px; }
+.seq-pads { display: flex; justify-content: center; gap: 10px; padding: 16px 0; }
+.seq-pad {
+  width: 64px; height: 64px;
+  background: #041208;
+  border: 1px solid var(--phosphor-dim);
+  color: var(--pad-color, var(--phosphor));
+  font-family: var(--mono);
+  font-size: 28px;
+  cursor: pointer;
+  transition: transform 80ms, box-shadow 120ms, background 120ms;
+  text-shadow: 0 0 6px currentColor;
+}
+.seq-pad:disabled { cursor: default; opacity: 0.75; }
+.seq-pad:hover:not(:disabled) { border-color: var(--pad-color, var(--phosphor)); }
+.seq-pad.on {
+  background: var(--pad-color, var(--phosphor));
+  color: #020604;
+  box-shadow: 0 0 18px var(--pad-color, var(--phosphor));
+  text-shadow: none;
+  transform: scale(1.05);
+}
+
+/* ===== Wire Trace ===== */
+.wire-box { display: flex; flex-direction: column; gap: 10px; align-items: center; }
+.wire-maze {
+  font-family: var(--mono);
+  font-size: 18px;
+  line-height: 1.05;
+  letter-spacing: 0.05em;
+  color: var(--phosphor);
+  background: #020804;
+  padding: 10px 12px;
+  border: 1px solid var(--phosphor-dim);
+  text-shadow: 0 0 4px var(--phosphor);
+  margin: 0;
+  white-space: pre;
+}
+
+/* ===== Cipher Decode ===== */
+.cipher-box { display: flex; flex-direction: column; gap: 10px; }
+.cipher-field { display: flex; flex-direction: column; gap: 3px; }
+.cipher-text {
+  font-family: var(--mono);
+  font-size: 15px;
+  letter-spacing: 0.1em;
+  padding: 8px 10px;
+  background: #020804;
+  border: 1px solid var(--phosphor-dim);
+  word-break: break-word;
+}
+.cipher-controls { display: flex; align-items: center; justify-content: center; gap: 14px; padding: 4px 0; }
+.cipher-shift { font-family: var(--mono); letter-spacing: 0.1em; min-width: 110px; text-align: center; }
+
+/* ===== Memory Grid ===== */
+.memgrid-box { display: flex; flex-direction: column; gap: 10px; transition: background 140ms; }
+.memgrid-box.err { background: rgba(255, 60, 60, 0.08); }
+.memgrid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 6px;
+  max-width: 280px;
+  margin: 4px auto;
+}
+.memcell {
+  aspect-ratio: 1 / 1;
+  background: #041208;
+  border: 1px solid var(--phosphor-dim);
+  cursor: pointer;
+  transition: background 120ms, box-shadow 120ms;
+}
+.memcell:hover { border-color: var(--phosphor); }
+.memcell.hl {
+  background: var(--amber);
+  box-shadow: 0 0 10px var(--amber);
+}
+.memcell.picked {
+  background: var(--phosphor);
+  box-shadow: 0 0 8px var(--phosphor);
+}
+
+/* ===== Pipe Connect ===== */
+.pipe-box { display: flex; flex-direction: column; gap: 10px; }
+.pipe-wrap { display: flex; align-items: center; gap: 4px; justify-content: center; }
+.pipe-port {
+  font-family: var(--mono);
+  font-size: 22px;
+  color: var(--amber);
+  text-shadow: 0 0 6px var(--amber);
+}
+.pipe-grid {
+  display: grid;
+  gap: 2px;
+  background: var(--phosphor-dim);
+  border: 1px solid var(--phosphor-dim);
+  padding: 2px;
+}
+.pipe-cell {
+  width: 44px; height: 44px;
+  background: #041208;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--mono);
+  font-size: 28px;
+  color: var(--phosphor);
+  cursor: pointer;
+  user-select: none;
+  transition: background 120ms;
+  text-shadow: 0 0 4px var(--phosphor);
+}
+.pipe-cell:hover { background: #082010; }
+.pipe-cell.start { background: #1a3010; }
+.pipe-cell.end { background: #301a10; }
+
+/* ===== Frequency Lock ===== */
+.freq-box { display: flex; flex-direction: column; gap: 10px; }
+.freq-stat { display: flex; justify-content: space-between; font-family: var(--mono); font-size: 13px; }
+.freq-meter {
+  height: 10px;
+  background: #020804;
+  border: 1px solid var(--phosphor-dim);
+  overflow: hidden;
+}
+.freq-bar {
+  height: 100%;
+  background: linear-gradient(90deg, var(--phosphor) 0%, var(--amber) 100%);
+  box-shadow: 0 0 6px var(--phosphor);
+  transition: width 90ms linear;
+}
+.freq-slider {
+  width: 100%;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  background: var(--phosphor-dim);
+  outline: none;
+  cursor: pointer;
+}
+.freq-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px; height: 22px;
+  background: var(--phosphor);
+  border: 1px solid var(--phosphor-bright);
+  box-shadow: 0 0 8px var(--phosphor);
+  cursor: pointer;
+}
+.freq-slider::-moz-range-thumb {
+  width: 14px; height: 22px;
+  background: var(--phosphor);
+  border: 1px solid var(--phosphor-bright);
+  box-shadow: 0 0 8px var(--phosphor);
+  cursor: pointer;
+}
+
+/* ===== Speed Typer ===== */
+.typer-box { display: flex; flex-direction: column; gap: 10px; }
+.typer-target {
+  font-family: var(--mono);
+  font-size: 22px;
+  letter-spacing: 0.18em;
+  padding: 6px 0;
+}
+.typer-diff {
+  font-family: var(--mono);
+  font-size: 22px;
+  letter-spacing: 0.18em;
+  padding: 6px 0;
+  min-height: 1.4em;
+}
+.typer-input {
+  width: 100%;
+  background: #020804;
+  border: 1px solid var(--phosphor-dim);
+  color: var(--phosphor-bright);
+  font-family: var(--mono);
+  font-size: 18px;
+  letter-spacing: 0.18em;
+  padding: 8px 10px;
+  outline: none;
+  text-align: center;
+  text-transform: uppercase;
+}
+.typer-input:focus { border-color: var(--phosphor); box-shadow: 0 0 6px var(--phosphor); }

@@ -297,8 +297,42 @@ function AdminPanel({ lang, state, setState, onExit, onPreview }) {
             </label>
             <div className="mono t-dim" style={{fontSize: 13, marginTop: 6, lineHeight: 1.3}}>
               {t
-                ? 'Включите, когда игроки в физической игре соберут вирус-дискету. На экране пароля появится команда /hack, которая запустит мини-игру "поиск слов". При успехе игроки получат пароль от одного из терминалов.'
-                : 'Enable when players assemble the virus disk in the tabletop game. The password screen will reveal the /hack command, launching a word-search mini-game. On success, players receive a random terminal password.'}
+                ? 'Включите, когда игроки в физической игре соберут вирус-дискету. На экране пароля появится команда /hack — при успехе игроки получат пароль от выбранного ниже терминала.'
+                : 'Enable when players assemble the virus disk in the tabletop game. The password screen will reveal /hack — on success, players receive the password of the terminal selected below.'}
+            </div>
+
+            <div className="field-row" style={{marginTop: 12}}>
+              <div className="field">
+                <label>{t ? 'ЦЕЛЬ ХАКА — ТЕРМИНАЛ' : 'HACK TARGET — TERMINAL'}</label>
+                <select
+                  value={state.hackTargetTerminalId || ''}
+                  onChange={e => setState(s => ({...s, hackTargetTerminalId: e.target.value || null}))}
+                >
+                  <option value="">{t ? '— случайный терминал —' : '— random terminal —'}</option>
+                  {state.terminals.map(term => (
+                    <option key={term.id} value={term.id}>
+                      {(lang === 'ru' ? (term.nameRu || term.name) : term.name) + ' · ' + term.hostname + ' · [' + term.password + ']'}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="field">
+                <label>{t ? 'ТИП ГОЛОВОЛОМКИ' : 'PUZZLE TYPE'}</label>
+                <select
+                  value={state.hackPuzzleType || 'random'}
+                  onChange={e => setState(s => ({...s, hackPuzzleType: e.target.value}))}
+                >
+                  <option value="random">{t ? '🎲 случайная' : '🎲 random'}</option>
+                  <option value="wordsearch">{t ? '🔤 поиск слов (15×15)' : '🔤 word search (15×15)'}</option>
+                  <option value="sequence">{t ? '🟦 повтор последовательности' : '🟦 sequence lock'}</option>
+                  <option value="wire">{t ? '🌀 трассировка лабиринта' : '🌀 wire trace'}</option>
+                  <option value="cipher">{t ? '🔐 шифр Цезаря' : '🔐 caesar cipher'}</option>
+                  <option value="memory">{t ? '🧠 запомни сетку' : '🧠 memory grid'}</option>
+                  <option value="pipe">{t ? '🚰 соедини трубы' : '🚰 pipe connect'}</option>
+                  <option value="freq">{t ? '📡 настройка частоты' : '📡 frequency lock'}</option>
+                  <option value="typer">{t ? '⌨️ скорость ввода' : '⌨️ speed typer'}</option>
+                </select>
+              </div>
             </div>
           </div>
           <div className="actions-bar">
