@@ -81,6 +81,17 @@
       // Ре-бродкаст всем (включая отправителя — он отфильтрует)
       broadcastFromHost({ type: 'cursors', cursors: Array.from(state.cursors.entries()).map(([id, c]) => ({ id, x: c.x, y: c.y })) });
       emitCursors();
+    } else if (msg.type === 'bye') {
+      state.viewerConns.delete(conn.peer);
+      state.peers.delete(conn.peer);
+      state.cursors.delete(conn.peer);
+      emitPeers();
+      emitCursors();
+      broadcastFromHost({
+        type: 'peers',
+        peers: Array.from(state.peers.entries()).map(([id, p]) => ({ id, ...p })),
+      });
+      try { conn.close(); } catch (e) {}
     }
   }
 
@@ -131,6 +142,23 @@
       });
       conn.on('error', () => {});
     });
+
+    // Purge cursors that haven't moved in 5 s — handles tabs closed without a clean goodbye
+    setInterval(() => {
+      const STALE_MS = 5000;
+      const now = Date.now();
+      let changed = false;
+      state.cursors.forEach((c, id) => {
+        if (now - c.t > STALE_MS) { state.cursors.delete(id); changed = true; }
+      });
+      if (changed) {
+        broadcastFromHost({
+          type: 'cursors',
+          cursors: Array.from(state.cursors.entries()).map(([id, c]) => ({ id, x: c.x, y: c.y })),
+        });
+        emitCursors();
+      }
+    }, 3000);
   }
 
   function becomeViewer() {
@@ -146,9 +174,13 @@
       state.ready = true;
       emit('onStatus', 'viewer');
       try { conn.send(JSON.stringify({ type: 'hello', name: state.selfName, color: state.selfColor })); } catch (e) {}
+      const _bye = () => { try { conn.send(JSON.stringify({ type: 'bye' })); } catch (e) {} };
+      window.addEventListener('beforeunload', _bye);
+      conn._bye = _bye;
     });
     conn.on('data', onViewerData);
     conn.on('close', () => {
+      if (conn._bye) { window.removeEventListener('beforeunload', conn._bye); conn._bye = null; }
       state.ready = false;
       emit('onStatus', 'disconnected');
       // Хост отвалился — попытаемся стать хостом через retryInit
