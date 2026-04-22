@@ -1,5 +1,9 @@
 // Экран ввода пароля
-function PasswordScreen({ lang, state, onLogin, onMasterUnlock, lockInfo, setLockInfo, canInput = true }) {
+function PasswordScreen({
+  lang, state, onLogin, onMasterUnlock, lockInfo, setLockInfo, canInput = true,
+  onPwChange, syncPwInput,
+  hackHostCallbacks, hackViewState,
+}) {
   const [pw, setPw] = useState('');
   const [checking, setChecking] = useState(false);
   const [msg, setMsg] = useState(null);
@@ -38,10 +42,15 @@ function PasswordScreen({ lang, state, onLogin, onMasterUnlock, lockInfo, setLoc
     if (entered === '/hack' || entered === 'hack' || entered === '/взлом' || entered === 'взлом') {
       setChecking(false);
       setPw('');
+      if (onPwChange) onPwChange('');
       if (state.virusDiskReady) {
         SCPAudio.granted();
         setMsg({ kind: 'master', text: lang === 'ru' ? 'ЗАПУСК ВИРУС-ДИСКЕТЫ...' : 'LAUNCHING VIRUS DISK...' });
-        setTimeout(() => { setMsg(null); setHackOpen(true); }, 500);
+        setTimeout(() => {
+          setMsg(null);
+          setHackOpen(true);
+          if (hackHostCallbacks && hackHostCallbacks.onOpen) hackHostCallbacks.onOpen();
+        }, 500);
       } else {
         SCPAudio.denied();
         setMsg({ kind: 'err', text: lang === 'ru' ? 'ВИРУС-ДИСКЕТА НЕ ОБНАРУЖЕНА' : 'VIRUS DISK NOT FOUND' });
@@ -79,6 +88,7 @@ function PasswordScreen({ lang, state, onLogin, onMasterUnlock, lockInfo, setLoc
       setMsg({ kind: 'err', text: lang === 'ru' ? 'НЕВЕРНЫЙ ПАРОЛЬ. ПОПЫТКА ' + newFails + '/3' : 'INVALID PASSWORD. ATTEMPT ' + newFails + '/3' });
     }
     setPw('');
+    if (onPwChange) onPwChange('');
     setChecking(false);
   };
 
@@ -100,20 +110,38 @@ function PasswordScreen({ lang, state, onLogin, onMasterUnlock, lockInfo, setLoc
       <HackGame
         lang={lang}
         state={state}
-        onCancel={() => setHackOpen(false)}
+        onCancel={() => {
+          setHackOpen(false);
+          if (hackHostCallbacks && hackHostCallbacks.onClose) hackHostCallbacks.onClose();
+        }}
         onSuccess={(r) => {
           setHackOpen(false);
+          if (hackHostCallbacks && hackHostCallbacks.onClose) hackHostCallbacks.onClose();
           if (r && r.pw) {
             setPw(r.pw);
+            if (onPwChange) onPwChange(r.pw);
             setTimeout(() => inputRef.current && inputRef.current.focus(), 50);
           }
         }}
+        onSnapshot={hackHostCallbacks ? hackHostCallbacks.onSnapshot : null}
+        onDone={hackHostCallbacks ? hackHostCallbacks.onDone : null}
+      />
+    )}
+    {hackViewState && hackViewState.open && (
+      <HackGame
+        lang={lang}
+        state={state}
+        readOnly={true}
+        viewState={hackViewState}
+        onCancel={() => {}}
+        onSuccess={() => {}}
       />
     )}
     <div className="col" style={{height: '100%', justifyContent: 'flex-start', gap: '1.2em'}}>
       <div className="screen-header">
         <div>
-          <pre className="ascii-title t-bright">{BRAND_ASCII}</pre>
+          <pre className="ascii-title ascii-title-full t-bright">{BRAND_ASCII}</pre>
+          <pre className="ascii-title ascii-title-small t-bright">{BRAND_ASCII_SMALL}</pre>
           <div className="mono t-dim" style={{marginTop: 6}}>
             {state.meta.subsystem} &nbsp;·&nbsp; {state.meta.build}
           </div>
@@ -152,11 +180,27 @@ function PasswordScreen({ lang, state, onLogin, onMasterUnlock, lockInfo, setLoc
           spellCheck="false"
           value={pw}
           disabled={checking || isLocked || !canInput}
-          onChange={e => { setPw(e.target.value); if (e.target.value) SCPAudio.key(); }}
+          onChange={e => {
+            setPw(e.target.value);
+            if (e.target.value) SCPAudio.key();
+            if (onPwChange) onPwChange(e.target.value);
+          }}
           placeholder={!canInput ? (lang === 'ru' ? 'РЕЖИМ ЗРИТЕЛЯ' : 'VIEWER MODE') : (isLocked ? (lang === 'ru' ? 'ЗАБЛОКИРОВАНО' : 'LOCKED') : (lang === 'ru' ? 'введите пароль' : 'enter password'))}
         />
         {!checking && canInput && <span className="caret"></span>}
       </form>
+
+      {syncPwInput != null && (
+        <div className="mono" style={{marginTop: '0.4em', letterSpacing: '0.22em', fontSize: 20}}>
+          <span className="t-dim">{'RMT: '}</span>
+          {syncPwInput.length > 0
+            ? <span className="t-amber">{'●'.repeat(syncPwInput.length)}</span>
+            : <span className="t-dim" style={{opacity: 0.45}}>
+                {lang === 'ru' ? '[ожидание ввода]' : '[waiting for input]'}
+              </span>
+          }
+        </div>
+      )}
 
       {revealedTerms.length > 0 && (
         <button className="found-pw-btn" onClick={() => setFoundOpen(true)}>
