@@ -4,7 +4,7 @@
 // =====================================================================
 // 1. SEQUENCE LOCK — повторить последовательность (Simon Says)
 // =====================================================================
-function SequencePuzzle({ lang, onWin }) {
+function SequencePuzzle({ lang, onWin, onStateChange, readOnlySnapshot }) {
   const t = lang === 'ru';
   const SYMBOLS = ['▲', '◆', '●', '■', '★'];
   const COLORS = ['#ff5566', '#ffb000', '#66ccff', '#33ff66', '#cc88ff'];
@@ -20,6 +20,10 @@ function SequencePuzzle({ lang, onWin }) {
   const wonRef = React.useRef(false);
 
   function gen(n) { return Array.from({length: n}, () => Math.floor(Math.random() * SYMBOLS.length)); }
+
+  React.useEffect(() => {
+    if (onStateChange) onStateChange({ phase, round, flash, errors });
+  }, [phase, round, flash, errors]);
 
   React.useEffect(() => {
     if (phase !== 'show') return;
@@ -59,27 +63,33 @@ function SequencePuzzle({ lang, onWin }) {
     }
   };
 
+  const dp            = readOnlySnapshot || {};
+  const displayPhase  = readOnlySnapshot ? dp.phase  : phase;
+  const displayRound  = readOnlySnapshot ? dp.round  : round;
+  const displayFlash  = readOnlySnapshot ? dp.flash  : flash;
+  const displayErrors = readOnlySnapshot ? dp.errors : errors;
+
   return (
     <div className="seq-box">
       <div className="mono t-dim" style={{fontSize: 13}}>
         {t ? '> Запомните последовательность и повторите её нажатиями.' : '> Memorize the sequence and tap it back.'}
       </div>
       <div className="mono t-dim" style={{fontSize: 13}}>
-        {t ? 'РАУНД' : 'ROUND'}: {round}/{TOTAL_ROUNDS} · {t ? 'ОШИБКИ' : 'ERRORS'}: {errors}/3
+        {t ? 'РАУНД' : 'ROUND'}: {displayRound}/{TOTAL_ROUNDS} · {t ? 'ОШИБКИ' : 'ERRORS'}: {displayErrors}/3
       </div>
       <div className="seq-pads">
         {SYMBOLS.map((s, i) => (
           <button
             key={i}
-            className={'seq-pad' + (flash === i ? ' on' : '')}
+            className={'seq-pad' + (displayFlash === i ? ' on' : '')}
             style={{'--pad-color': COLORS[i]}}
-            onClick={() => press(i)}
-            disabled={phase === 'show'}
+            onClick={readOnlySnapshot ? undefined : () => press(i)}
+            disabled={displayPhase === 'show' || !!readOnlySnapshot}
           >{s}</button>
         ))}
       </div>
       <div className="mono t-dim" style={{fontSize: 12, textAlign: 'center'}}>
-        {phase === 'show' ? (t ? '// ТРАНСЛЯЦИЯ //' : '// TRANSMITTING //') : (t ? '// ВВОД //' : '// INPUT //')}
+        {displayPhase === 'show' ? (t ? '// ТРАНСЛЯЦИЯ //' : '// TRANSMITTING //') : (t ? '// ВВОД //' : '// INPUT //')}
       </div>
     </div>
   );
@@ -88,7 +98,7 @@ function SequencePuzzle({ lang, onWin }) {
 // =====================================================================
 // 2. WIRE TRACE — провести точку по ASCII-лабиринту
 // =====================================================================
-function WirePuzzle({ lang, onWin }) {
+function WirePuzzle({ lang, onWin, onStateChange, readOnlySnapshot }) {
   const t = lang === 'ru';
   const W = 17, H = 11; // нечётные
   const maze = React.useMemo(() => carveMaze(W, H), []);
@@ -97,8 +107,12 @@ function WirePuzzle({ lang, onWin }) {
   const wonRef = React.useRef(false);
 
   React.useEffect(() => {
+    if (onStateChange) onStateChange({ pos });
+  }, [pos]);
+
+  React.useEffect(() => {
     const h = (e) => {
-      if (wonRef.current) return;
+      if (wonRef.current || readOnlySnapshot) return;
       let dx = 0, dy = 0;
       if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') dx = -1;
       else if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') dx = 1;
@@ -117,7 +131,9 @@ function WirePuzzle({ lang, onWin }) {
     };
     window.addEventListener('keydown', h);
     return () => window.removeEventListener('keydown', h);
-  }, [maze]);
+  }, [maze, readOnlySnapshot]);
+
+  const displayPos = readOnlySnapshot ? (readOnlySnapshot.pos || [1, 1]) : pos;
 
   return (
     <div className="wire-box">
@@ -126,7 +142,7 @@ function WirePuzzle({ lang, onWin }) {
       </div>
       <pre className="wire-maze">
 {maze.map((row, y) => row.map((c, x) => {
-  const isP = x === pos[0] && y === pos[1];
+  const isP = x === displayPos[0] && y === displayPos[1];
   const isG = x === goal[0] && y === goal[1];
   return isP ? '◉' : isG ? '◎' : (c ? '█' : '·');
 }).join('')).join('\n')}
@@ -162,7 +178,7 @@ function carveMaze(W, H) {
 // =====================================================================
 // 3. CIPHER DECODE — шифр Цезаря. Игрок двигает сдвиг до читаемости.
 // =====================================================================
-function CipherPuzzle({ lang, onWin }) {
+function CipherPuzzle({ lang, onWin, onStateChange, readOnlySnapshot }) {
   const t = lang === 'ru';
   const ALPHA = t ? 'АБВГДЕЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ' : 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
   const PHRASES_RU = ['ПРОРЫВ ПЕРИМЕТРА СЕКТОР СЕМЬ', 'ПРОТОКОЛ ОМЕГА АКТИВЕН', 'ДОСТУП РАЗРЕШЕН УРОВЕНЬ ПЯТЬ', 'ЭВАКУАЦИЯ ПЕРСОНАЛА КЛАСС КЕТЕР', 'КОНТЕЙНМЕНТ НАРУШЕН ПОВТОРЯЮ НАРУШЕН'];
@@ -180,6 +196,10 @@ function CipherPuzzle({ lang, onWin }) {
   const [msg, setMsg] = React.useState(null);
   const wonRef = React.useRef(false);
 
+  React.useEffect(() => {
+    if (onStateChange) onStateChange({ userShift });
+  }, [userShift]);
+
   const tryLock = () => {
     if (decrypted === target) {
       if (!wonRef.current) { wonRef.current = true; SCPAudio.granted(); onWin(); }
@@ -189,6 +209,9 @@ function CipherPuzzle({ lang, onWin }) {
       setTimeout(() => setMsg(null), 1200);
     }
   };
+
+  const displayShift     = readOnlySnapshot ? (readOnlySnapshot.userShift || 0) : userShift;
+  const displayDecrypted = caesarShift(encrypted, -displayShift, ALPHA);
 
   return (
     <div className="cipher-box">
@@ -200,16 +223,23 @@ function CipherPuzzle({ lang, onWin }) {
         <div className="cipher-text t-amber">{encrypted}</div>
       </div>
       <div className="cipher-controls">
-        <button className="btn" onClick={() => { setUserShift(s => (s - 1 + ALPHA.length) % ALPHA.length); SCPAudio.key(); }}>‹ −1</button>
-        <div className="cipher-shift t-bright">SHIFT = {userShift}</div>
-        <button className="btn" onClick={() => { setUserShift(s => (s + 1) % ALPHA.length); SCPAudio.key(); }}>+1 ›</button>
+        <button className="btn"
+          onClick={readOnlySnapshot ? undefined : () => { setUserShift(s => (s - 1 + ALPHA.length) % ALPHA.length); SCPAudio.key(); }}
+          disabled={!!readOnlySnapshot}>‹ −1</button>
+        <div className="cipher-shift t-bright">SHIFT = {displayShift}</div>
+        <button className="btn"
+          onClick={readOnlySnapshot ? undefined : () => { setUserShift(s => (s + 1) % ALPHA.length); SCPAudio.key(); }}
+          disabled={!!readOnlySnapshot}>+1 ›</button>
       </div>
       <div className="cipher-field">
         <div className="t-dim" style={{fontSize: 12}}>DECRYPTED //</div>
-        <div className="cipher-text t-bright">{decrypted}</div>
+        <div className="cipher-text t-bright">{displayDecrypted}</div>
       </div>
       {msg && <div className="mono t-red" style={{textAlign: 'center'}}>{'>> ' + msg + ' <<'}</div>}
-      <button className="btn" onClick={tryLock} style={{alignSelf: 'center', minWidth: 140}}>
+      <button className="btn"
+        onClick={readOnlySnapshot ? undefined : tryLock}
+        disabled={!!readOnlySnapshot}
+        style={{alignSelf: 'center', minWidth: 140}}>
         {t ? 'ПОДТВЕРДИТЬ' : 'LOCK'}
       </button>
     </div>
@@ -227,7 +257,7 @@ function caesarShift(text, shift, alpha) {
 // =====================================================================
 // 4. MEMORY GRID — запомнить подсвеченные клетки и кликнуть их снова
 // =====================================================================
-function MemoryPuzzle({ lang, onWin }) {
+function MemoryPuzzle({ lang, onWin, onStateChange, readOnlySnapshot }) {
   const t = lang === 'ru';
   const SIZE = 5;
   const ROUNDS = 3;
@@ -237,6 +267,14 @@ function MemoryPuzzle({ lang, onWin }) {
   const [picked, setPicked] = React.useState(new Set());
   const [err, setErr] = React.useState(false);
   const wonRef = React.useRef(false);
+
+  React.useEffect(() => {
+    if (onStateChange) onStateChange({
+      phase, round,
+      target: Array.from(target),
+      picked: Array.from(picked),
+    });
+  }, [phase, round, target, picked]);
 
   const startRound = (r) => {
     const n = 3 + r;
@@ -271,19 +309,31 @@ function MemoryPuzzle({ lang, onWin }) {
     }
   };
 
+  const dp            = readOnlySnapshot || {};
+  const displayPhase  = readOnlySnapshot ? dp.phase  : phase;
+  const displayRound  = readOnlySnapshot ? dp.round  : round;
+  const displayTarget = readOnlySnapshot ? new Set(dp.target || []) : target;
+  const displayPicked = readOnlySnapshot ? new Set(dp.picked || []) : picked;
+
   return (
     <div className={'memgrid-box' + (err ? ' err' : '')}>
       <div className="mono t-dim" style={{fontSize: 13}}>
         {t ? '> Запомните клетки и нажмите их после отсчёта.' : '> Memorize the cells and tap them back.'}
       </div>
       <div className="mono t-dim" style={{fontSize: 13, textAlign: 'center'}}>
-        {t ? 'РАУНД' : 'ROUND'}: {round + 1}/{ROUNDS} · {phase === 'show' ? (t ? 'ЗАПОМНИТЕ' : 'MEMORIZE') : (t ? 'ВВОД' : 'INPUT')}
+        {t ? 'РАУНД' : 'ROUND'}: {displayRound + 1}/{ROUNDS} · {displayPhase === 'show' ? (t ? 'ЗАПОМНИТЕ' : 'MEMORIZE') : (t ? 'ВВОД' : 'INPUT')}
       </div>
       <div className="memgrid">
         {Array.from({length: SIZE * SIZE}, (_, i) => {
-          const show = phase === 'show' && target.has(i);
-          const pick = picked.has(i);
-          return <div key={i} className={'memcell' + (show ? ' hl' : '') + (pick ? ' picked' : '')} onClick={() => click(i)}></div>;
+          const show = displayPhase === 'show' && displayTarget.has(i);
+          const pick = displayPicked.has(i);
+          return (
+            <div
+              key={i}
+              className={'memcell' + (show ? ' hl' : '') + (pick ? ' picked' : '')}
+              onClick={readOnlySnapshot ? undefined : () => click(i)}
+            ></div>
+          );
         })}
       </div>
     </div>
@@ -293,7 +343,7 @@ function MemoryPuzzle({ lang, onWin }) {
 // =====================================================================
 // 5. PIPE CONNECT — поворачивай сегменты, соедини вход с выходом
 // =====================================================================
-function PipePuzzle({ lang, onWin }) {
+function PipePuzzle({ lang, onWin, onStateChange, readOnlySnapshot }) {
   const t = lang === 'ru';
   const W = 5, H = 4;
   const START = { x: 0, y: 1 };
@@ -312,6 +362,10 @@ function PipePuzzle({ lang, onWin }) {
   const [board, setBoard] = React.useState(makeBoard);
   const wonRef = React.useRef(false);
 
+  React.useEffect(() => {
+    if (onStateChange) onStateChange({ board });
+  }, [board]);
+
   const rotate = (x, y) => {
     setBoard(b => {
       const nb = b.map(r => r.slice());
@@ -323,29 +377,32 @@ function PipePuzzle({ lang, onWin }) {
   };
 
   const connected = React.useMemo(() => {
+    const b = readOnlySnapshot ? (readOnlySnapshot.board || board) : board;
     const visited = new Set([START.x + ',' + START.y]);
     const q = [START];
     const D = [[0, -1, 1, 4], [1, 0, 2, 8], [0, 1, 4, 1], [-1, 0, 8, 2]];
     while (q.length) {
       const { x, y } = q.shift();
       if (x === END.x && y === END.y) return true;
-      const m = board[y][x];
+      const m = b[y][x];
       for (const [dx, dy, mb, tb] of D) {
         if (!(m & mb)) continue;
         const nx = x + dx, ny = y + dy;
         if (nx < 0 || nx >= W || ny < 0 || ny >= H) continue;
         const k = nx + ',' + ny;
         if (visited.has(k)) continue;
-        if (!(board[ny][nx] & tb)) continue;
+        if (!(b[ny][nx] & tb)) continue;
         visited.add(k); q.push({ x: nx, y: ny });
       }
     }
     return false;
-  }, [board]);
+  }, [readOnlySnapshot, board]);
 
   React.useEffect(() => {
     if (connected && !wonRef.current) { wonRef.current = true; onWin(); }
   }, [connected]);
+
+  const displayBoard = readOnlySnapshot ? (readOnlySnapshot.board || board) : board;
 
   return (
     <div className="pipe-box">
@@ -355,10 +412,10 @@ function PipePuzzle({ lang, onWin }) {
       <div className="pipe-wrap">
         <div className="pipe-port">◄</div>
         <div className="pipe-grid" style={{gridTemplateColumns: `repeat(${W}, 1fr)`}}>
-          {board.map((row, y) => row.map((m, x) => (
+          {displayBoard.map((row, y) => row.map((m, x) => (
             <div key={x + '-' + y}
               className={'pipe-cell' + ((x === START.x && y === START.y) ? ' start' : '') + ((x === END.x && y === END.y) ? ' end' : '')}
-              onClick={() => rotate(x, y)}>
+              onClick={readOnlySnapshot ? undefined : () => rotate(x, y)}>
               {pipeChar(m)}
             </div>
           )))}
@@ -376,7 +433,7 @@ function pipeChar(m) {
 // =====================================================================
 // 6. FREQUENCY LOCK — поймай сигнал в узкой полосе
 // =====================================================================
-function FrequencyPuzzle({ lang, onWin }) {
+function FrequencyPuzzle({ lang, onWin, onStateChange, readOnlySnapshot }) {
   const t = lang === 'ru';
   const targetRef = React.useRef(null);
   if (targetRef.current === null) targetRef.current = 15 + Math.random() * 70;
@@ -393,9 +450,15 @@ function FrequencyPuzzle({ lang, onWin }) {
     return () => clearInterval(id);
   }, []);
 
-  const dist = Math.abs(val - target);
+  React.useEffect(() => {
+    if (onStateChange) onStateChange({ val, timeLeft });
+  }, [val, timeLeft]);
+
+  const displayVal      = readOnlySnapshot ? (readOnlySnapshot.val      ?? val)      : val;
+  const displayTimeLeft = readOnlySnapshot ? (readOnlySnapshot.timeLeft ?? timeLeft) : timeLeft;
+  const dist    = Math.abs(displayVal - target);
   const strength = Math.max(0, Math.min(1, 1 - dist / 35));
-  const blocks = Math.round(strength * 24);
+  const blocks  = Math.round(strength * 24);
 
   const tryLock = () => {
     if (timeLeft <= 0) return;
@@ -414,8 +477,8 @@ function FrequencyPuzzle({ lang, onWin }) {
         {t ? '> Найдите несущую частоту. Лочьте, когда сигнал чистый.' : '> Find the carrier frequency. Lock when the signal is clean.'}
       </div>
       <div className="freq-stat">
-        <div>{t ? 'ЧАСТОТА' : 'FREQ'}: <span className="t-bright">{val.toFixed(1)}</span> MHz</div>
-        <div>{t ? 'ОСТАЛОСЬ' : 'TIME'}: <span className={timeLeft < 5 ? 't-red' : 't-bright'}>{timeLeft.toFixed(1)}s</span></div>
+        <div>{t ? 'ЧАСТОТА' : 'FREQ'}: <span className="t-bright">{displayVal.toFixed(1)}</span> MHz</div>
+        <div>{t ? 'ОСТАЛОСЬ' : 'TIME'}: <span className={displayTimeLeft < 5 ? 't-red' : 't-bright'}>{displayTimeLeft.toFixed(1)}s</span></div>
       </div>
       <div className="freq-meter">
         <div className="freq-bar" style={{width: (strength * 100) + '%'}}></div>
@@ -423,10 +486,15 @@ function FrequencyPuzzle({ lang, onWin }) {
       <div className="mono t-amber" style={{letterSpacing: '0.1em', fontSize: 15, textAlign: 'center'}}>
         [{'█'.repeat(blocks)}{'·'.repeat(24 - blocks)}]
       </div>
-      <input type="range" min="0" max="100" step="0.1" value={val} className="freq-slider"
-        onChange={e => setVal(+e.target.value)} disabled={timeLeft <= 0} />
+      <input type="range" min="0" max="100" step="0.1" value={displayVal}
+        className="freq-slider"
+        onChange={readOnlySnapshot ? undefined : e => setVal(+e.target.value)}
+        disabled={timeLeft <= 0 || !!readOnlySnapshot} />
       {msg && <div className="mono t-red" style={{textAlign: 'center'}}>{'>> ' + msg + ' <<'}</div>}
-      <button className="btn" onClick={tryLock} disabled={timeLeft <= 0} style={{alignSelf: 'center', minWidth: 140}}>
+      <button className="btn"
+        onClick={readOnlySnapshot ? undefined : tryLock}
+        disabled={displayTimeLeft <= 0 || !!readOnlySnapshot}
+        style={{alignSelf: 'center', minWidth: 140}}>
         {t ? 'ЗАХВАТ' : 'LOCK'}
       </button>
     </div>
@@ -436,7 +504,7 @@ function FrequencyPuzzle({ lang, onWin }) {
 // =====================================================================
 // 7. SPEED TYPER — ввести код за 15 секунд
 // =====================================================================
-function TyperPuzzle({ lang, onWin }) {
+function TyperPuzzle({ lang, onWin, onStateChange, readOnlySnapshot }) {
   const t = lang === 'ru';
   const target = React.useMemo(() => {
     const parts = ['SCP', String(Math.floor(Math.random() * 900 + 100)), 'ACC', randHex(6), randHex(4)];
@@ -455,6 +523,10 @@ function TyperPuzzle({ lang, onWin }) {
     return () => clearInterval(id);
   }, []);
 
+  React.useEffect(() => {
+    if (onStateChange) onStateChange({ input, timeLeft });
+  }, [input, timeLeft]);
+
   const onSubmit = (e) => {
     e.preventDefault();
     if (timeLeft <= 0) return;
@@ -467,15 +539,18 @@ function TyperPuzzle({ lang, onWin }) {
     }
   };
 
+  const displayInput    = readOnlySnapshot ? (readOnlySnapshot.input    || '')       : input;
+  const displayTimeLeft = readOnlySnapshot ? (readOnlySnapshot.timeLeft ?? timeLeft) : timeLeft;
+
   const diff = target.split('').map((ch, i) => {
-    const u = input[i];
+    const u = displayInput[i];
     if (u === undefined) return <span key={i} className="t-dim">{ch}</span>;
-    if (u === ch) return <span key={i} className="t-bright">{ch}</span>;
+    if (u === ch)        return <span key={i} className="t-bright">{ch}</span>;
     return <span key={i} className="t-red">{u}</span>;
   });
 
   return (
-    <form onSubmit={onSubmit} className="typer-box">
+    <form onSubmit={readOnlySnapshot ? e => e.preventDefault() : onSubmit} className="typer-box">
       <div className="mono t-dim" style={{fontSize: 13}}>
         {t ? '> Введите код ТОЧНО, как показан. Время ограничено.' : '> Type the code EXACTLY as shown. Time is limited.'}
       </div>
@@ -487,14 +562,17 @@ function TyperPuzzle({ lang, onWin }) {
         <div className="t-dim" style={{fontSize: 12}}>{t ? 'ВВОД' : 'INPUT'}</div>
         <div className="typer-diff">{diff}</div>
       </div>
-      <input ref={ref} className="typer-input" value={input}
-        onChange={e => { setInput(e.target.value); SCPAudio.key(); }}
-        disabled={timeLeft <= 0} spellCheck="false" autoComplete="off" />
+      <input ref={ref} className="typer-input" value={displayInput}
+        onChange={readOnlySnapshot ? undefined : e => { setInput(e.target.value); SCPAudio.key(); }}
+        disabled={timeLeft <= 0 || !!readOnlySnapshot}
+        spellCheck="false" autoComplete="off" />
       <div className="mono t-dim" style={{textAlign: 'center'}}>
-        {t ? 'ОСТАЛОСЬ' : 'TIME'}: <span className={timeLeft < 5 ? 't-red' : 't-bright'}>{timeLeft.toFixed(1)}s</span>
+        {t ? 'ОСТАЛОСЬ' : 'TIME'}: <span className={displayTimeLeft < 5 ? 't-red' : 't-bright'}>{displayTimeLeft.toFixed(1)}s</span>
       </div>
       {msg && <div className="mono t-red" style={{textAlign: 'center'}}>{'>> ' + msg + ' <<'}</div>}
-      <button type="submit" className="btn" disabled={timeLeft <= 0} style={{alignSelf: 'center', minWidth: 140}}>
+      <button type="submit" className="btn"
+        disabled={displayTimeLeft <= 0 || !!readOnlySnapshot}
+        style={{alignSelf: 'center', minWidth: 140}}>
         {t ? 'ПОДТВЕРДИТЬ' : 'SUBMIT'}
       </button>
     </form>
