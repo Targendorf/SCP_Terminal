@@ -278,6 +278,10 @@ function App() {
         />
       )}
 
+      {!IS_ADMIN_ROUTE && isHost && !isViewer && (
+        <ControlTransferBtn peers={peers} selfId={SCPSession.selfId} lang={tweaks.lang} />
+      )}
+
       {!IS_ADMIN_ROUTE && <SessionBadge role={sessionRole} status={sessionStatus} peers={peers} lang={tweaks.lang} />}
 
       {<TweaksPanel tweaks={tweaks} setTweaks={setTweaks} />}
@@ -302,6 +306,42 @@ function CursorOverlay({ cursors }) {
           <span className="peer-label" style={{background: c.color, color: '#000'}}>{c.name}</span>
         </div>
       ))}
+    </div>
+  );
+}
+
+// === Кнопка передачи контроля ===
+function ControlTransferBtn({ peers, selfId, lang }) {
+  const [open, setOpen] = _useState(false);
+  const t = lang === 'ru';
+
+  // Only show viewers (exclude self)
+  const viewers = peers.filter(p => p.id !== selfId);
+  if (viewers.length === 0) return null;
+
+  const transfer = (id) => {
+    setOpen(false);
+    SCPSession.transferControl(id);
+  };
+
+  return (
+    <div className="control-transfer-wrap">
+      <button className="control-transfer-btn" onClick={() => setOpen(o => !o)}>
+        {t ? '⇄ ПЕРЕДАТЬ КОНТРОЛЬ' : '⇄ TRANSFER CONTROL'}
+      </button>
+      {open && (
+        <div className="control-transfer-dropdown">
+          <div className="mono t-dim" style={{fontSize: 11, padding: '4px 8px', borderBottom: '1px solid var(--phosphor-dim)'}}>
+            {t ? 'Выберите нового хоста:' : 'Select new host:'}
+          </div>
+          {viewers.map(v => (
+            <button key={v.id} className="control-transfer-item" onClick={() => transfer(v.id)}
+              style={{color: v.color}}>
+              {v.name}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

@@ -705,6 +705,53 @@ html, body {
 }
 .found-pw-btn:hover { background: var(--amber); color: var(--bg-screen); text-shadow: none; }
 
+/* === Transfer Control кнопка === */
+.control-transfer-wrap {
+  position: fixed;
+  top: 92px;
+  right: 14px;
+  z-index: 440;
+}
+.control-transfer-btn {
+  background: var(--bg-screen);
+  border: 2px solid var(--phosphor-dim);
+  color: var(--phosphor);
+  font-family: var(--mono);
+  font-size: 13px;
+  padding: 5px 10px;
+  cursor: pointer;
+  letter-spacing: 0.08em;
+  text-shadow: 0 0 4px var(--phosphor);
+  width: 100%;
+  text-align: left;
+}
+.control-transfer-btn:hover { background: var(--phosphor); color: var(--bg-screen); text-shadow: none; }
+.control-transfer-dropdown {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  background: var(--bg-screen);
+  border: 1px solid var(--phosphor-dim);
+  min-width: 160px;
+  z-index: 441;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.6);
+}
+.control-transfer-item {
+  display: block;
+  width: 100%;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--phosphor-dim);
+  font-family: var(--mono);
+  font-size: 13px;
+  padding: 6px 12px;
+  cursor: pointer;
+  text-align: left;
+  letter-spacing: 0.06em;
+}
+.control-transfer-item:last-child { border-bottom: 0; }
+.control-transfer-item:hover { background: var(--phosphor); color: var(--bg-screen) !important; text-shadow: none; }
+
 .found-pw-modal {
   min-width: min(520px, 96vw);
   max-width: 640px;

@@ -116,6 +116,34 @@
     } else if (msg.type === 'cursors') {
       state.cursors = new Map((msg.cursors || []).map(c => [c.id, { x: c.x, y: c.y, t: Date.now() }]));
       emitCursors();
+    } else if (msg.type === 'promote') {
+      // Host is passing control to us — claim HOST_ID after brief delay
+      const inheritedState = msg.state || null;
+      const conn = state.hostConn;
+      if (conn && conn._bye) { window.removeEventListener('beforeunload', conn._bye); conn._bye = null; }
+      setTimeout(() => {
+        if (state._ttlInterval) { clearInterval(state._ttlInterval); state._ttlInterval = null; }
+        try { if (state.peer) state.peer.destroy(); } catch (e) {}
+        state.peer = null;
+        state.viewerConns.clear();
+        state.peers.clear();
+        state.cursors.clear();
+        state.hostConn = null;
+        const newPeer = new Peer(HOST_ID, { debug: 0 });
+        state.peer = newPeer;
+        let resolved = false;
+        newPeer.on('open', (id) => {
+          if (resolved) return; resolved = true;
+          if (id === HOST_ID) {
+            becomeHost();
+            if (inheritedState) { state.lastSharedState = inheritedState; emit('onState', inheritedState); }
+          }
+        });
+        newPeer.on('error', () => {
+          if (resolved) return; resolved = true;
+          retryInit();
+        });
+      }, 100);
     }
   }
 
@@ -275,6 +303,14 @@
 
   window.SCPSession = {
     init, disable, broadcastState, sendCursor,
+    transferControl: (targetId) => {
+      if (!state.isHost) return;
+      const conn = state.viewerConns.get(targetId);
+      if (!conn || !conn.open) return;
+      try { conn.send(JSON.stringify({ type: 'promote', state: state.lastSharedState })); } catch (e) {}
+      // Release host role after delay (give viewer time to claim HOST_ID first)
+      setTimeout(() => retryInit(), 200);
+    },
     get isHost() { return state.isHost; },
     get isReady() { return state.ready; },
     get selfId() { return state.selfId; },
