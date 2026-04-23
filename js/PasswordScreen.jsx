@@ -38,23 +38,51 @@ function PasswordScreen({
 
     const entered = pw.trim().toLowerCase();
 
-    // Команда /hack — запускает мини-игру если вирус-дискета собрана
-    if (entered === '/hack' || entered === 'hack' || entered === '/взлом' || entered === 'взлом') {
+    // Команда /hack [имя] — взлом конкретного терминала
+    const hackRx = /^(?:\/hack|\/взлом)\s+(.+)$/i;
+    const hackBare = /^(?:\/hack|\/взлом)$/i;
+    if (hackBare.test(entered)) {
+      // /hack без имени — подсказка
       setChecking(false);
       setPw('');
       if (onPwChange) onPwChange('');
-      if (state.virusDiskReady) {
-        SCPAudio.granted();
-        setMsg({ kind: 'master', text: lang === 'ru' ? 'ЗАПУСК ВИРУС-ДИСКЕТЫ...' : 'LAUNCHING VIRUS DISK...' });
-        setTimeout(() => {
-          setMsg(null);
-          setHackOpen(true);
-          if (hackHostCallbacks && hackHostCallbacks.onOpen) hackHostCallbacks.onOpen();
-        }, 500);
-      } else {
+      SCPAudio.denied();
+      setMsg({ kind: 'err', text: lang === 'ru' ? 'УКАЖИТЕ ИМЯ ЦЕЛИ: /hack [имя терминала]' : 'SPECIFY TARGET: /hack [terminal name]' });
+      return;
+    }
+    const hackMatch = hackRx.exec(entered);
+    if (hackMatch) {
+      setChecking(false);
+      setPw('');
+      if (onPwChange) onPwChange('');
+      if (!state.virusDiskReady) {
         SCPAudio.denied();
         setMsg({ kind: 'err', text: lang === 'ru' ? 'ВИРУС-ДИСКЕТА НЕ ОБНАРУЖЕНА' : 'VIRUS DISK NOT FOUND' });
+        return;
       }
+      const typedName = hackMatch[1].trim().toLowerCase();
+      const hackTarget = state.hackTargetTerminalId
+        ? (state.terminals || []).find(t => t.id === state.hackTargetTerminalId)
+        : null;
+      if (!hackTarget) {
+        SCPAudio.denied();
+        setMsg({ kind: 'err', text: lang === 'ru' ? 'ЦЕЛЬ ДЛЯ ВЗЛОМА НЕ НАСТРОЕНА' : 'NO HACK TARGET CONFIGURED' });
+        return;
+      }
+      const nameRu = (hackTarget.nameRu || hackTarget.name || '').toLowerCase();
+      const nameEn = (hackTarget.name || '').toLowerCase();
+      if (typedName !== nameRu && typedName !== nameEn) {
+        SCPAudio.denied();
+        setMsg({ kind: 'err', text: lang === 'ru' ? 'ЦЕЛЬ НЕ НАЙДЕНА' : 'TARGET NOT FOUND' });
+        return;
+      }
+      SCPAudio.granted();
+      setMsg({ kind: 'master', text: lang === 'ru' ? 'ЗАПУСК ВИРУС-ДИСКЕТЫ...' : 'LAUNCHING VIRUS DISK...' });
+      setTimeout(() => {
+        setMsg(null);
+        setHackOpen(true);
+        if (hackHostCallbacks && hackHostCallbacks.onOpen) hackHostCallbacks.onOpen();
+      }, 500);
       return;
     }
 
@@ -232,9 +260,15 @@ function PasswordScreen({
 
       <div className="status-bar t-dim">
         <span>{lang === 'ru' ? 'SECURE · CONTAIN · PROTECT' : 'SECURE · CONTAIN · PROTECT'}</span>
-        {state.virusDiskReady && (
-          <span className="t-amber">{lang === 'ru' ? '[/hack — ВИРУС-ДИСКЕТА ДОСТУПНА]' : '[/hack — VIRUS DISK READY]'}</span>
-        )}
+        {state.virusDiskReady && state.hackTargetTerminalId && (() => {
+          const tgt = (state.terminals || []).find(t => t.id === state.hackTargetTerminalId);
+          const tname = tgt ? (lang === 'ru' ? (tgt.nameRu || tgt.name) : tgt.name) : '?';
+          return (
+            <span className="t-amber">
+              {lang === 'ru' ? '[/hack ' + tname + ' — ВИРУС-ДИСКЕТА ДОСТУПНА]' : '[/hack ' + tname + ' — VIRUS DISK READY]'}
+            </span>
+          );
+        })()}
         <span>{lang === 'ru' ? 'НЕСАНКЦИОНИРОВАННЫЙ ДОСТУП ПРЕСЛЕДУЕТСЯ' : 'UNAUTHORIZED ACCESS IS A FEDERAL OFFENSE'}</span>
       </div>
     </div>

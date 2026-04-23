@@ -1,5 +1,5 @@
 // HackGame — диспетчер головоломок. Каждая мини-игра работает внутри общей обёртки.
-// На старте выбирается тип (по настройке админа) и цель (конкретный или случайный терминал).
+// На старте выбирается тип головоломки и конкретный терминал-цель (настраивается в админке).
 
 const HACK_PUZZLE_TYPES = ['wordsearch', 'sequence', 'wire', 'cipher', 'memory', 'pipe', 'freq', 'typer'];
 
@@ -8,7 +8,7 @@ function getHackReward(state, lang) {
   if (!list.length) return null;
   let term = null;
   if (state.hackTargetTerminalId) term = list.find(x => x.id === state.hackTargetTerminalId);
-  if (!term) term = list[Math.floor(Math.random() * list.length)];
+  if (!term) return null;
   return {
     pw: term.password,
     name: lang === 'ru' ? (term.nameRu || term.name) : term.name,

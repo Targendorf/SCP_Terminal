@@ -308,13 +308,22 @@ function AdminPanel({ lang, state, setState, onExit, onPreview }) {
                   value={state.hackTargetTerminalId || ''}
                   onChange={e => setState(s => ({...s, hackTargetTerminalId: e.target.value || null}))}
                 >
-                  <option value="">{t ? '— случайный терминал —' : '— random terminal —'}</option>
+                  <option value="">{t ? '— выберите терминал-цель —' : '— select target terminal —'}</option>
                   {state.terminals.map(term => (
                     <option key={term.id} value={term.id}>
                       {(lang === 'ru' ? (term.nameRu || term.name) : term.name) + ' · ' + term.hostname + ' · [' + term.password + ']'}
                     </option>
                   ))}
                 </select>
+                {state.hackTargetTerminalId && (() => {
+                  const tgt = (state.terminals || []).find(t => t.id === state.hackTargetTerminalId);
+                  const tname = tgt ? (lang === 'ru' ? (tgt.nameRu || tgt.name) : tgt.name) : '';
+                  return tname ? (
+                    <div className="mono t-amber" style={{fontSize: 12, marginTop: 6}}>
+                      {t ? '▶ Игроки введут: /hack ' + tname : '▶ Players type: /hack ' + tname}
+                    </div>
+                  ) : null;
+                })()}
               </div>
               <div className="field">
                 <label>{t ? 'ТИП ГОЛОВОЛОМКИ' : 'PUZZLE TYPE'}</label>
