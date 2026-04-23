@@ -22,7 +22,45 @@ window.formatRetroDate = function (d) {
   return `${pad(d.getDate())}-${m}-91  ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 };
 
-// ... (asciiFrame и useTypewriter без изменений) ...
+// Получение ASCII-рамки с текстом
+window.asciiFrame = function(text, width) {
+  const pad = width - text.length - 4;
+  const left = Math.floor(pad / 2);
+  const right = pad - left;
+  const top = ' ╔' + '═'.repeat(width - 4) + '╗';
+  const mid = ' ║' + ' '.repeat(left) + text + ' '.repeat(right) + '║';
+  const bot = ' ╚' + '═'.repeat(width - 4) + '╝';
+  return top + '\n' + mid + '\n' + bot;
+};
+
+// Эффект печатающегося текста
+window.useTypewriter = function(text, speed = 1) {
+  const [current, setCurrent] = useState('');
+  const [done, setDone] = useState(false);
+
+  useEffect(() => {
+    if (!text) {
+      setCurrent('');
+      setDone(true);
+      return;
+    }
+    setDone(false);
+    let i = 0;
+    const interval = setInterval(() => {
+      i += speed;
+      if (i >= text.length) {
+        setCurrent(text);
+        setDone(true);
+        clearInterval(interval);
+      } else {
+        setCurrent(text.slice(0, i));
+      }
+    }, 16);
+    return () => clearInterval(interval);
+  }, [text, speed]);
+
+  return [current, done];
+};
 
 // Строки для статус-бара
 window.statusBarText = function () {
