@@ -669,7 +669,7 @@ html, body {
   white-space: pre;
   letter-spacing: 0;
   max-width: 100%;
-  overflow-x: auto;
+  overflow: hidden;
 }
 .ascii-title-small { display: none; }
 @media (max-width: 860px) {
