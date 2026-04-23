@@ -10,6 +10,22 @@ window.uid = function (prefix) {
 window.useStore = function () {
   const [state, setState] = useState(() => SCPStorage.load());
   useEffect(() => { SCPStorage.save(state); }, [state]);
+
+  // Подхватываем изменения из других вкладок (например, из вкладки ?admin=1)
+  useEffect(() => {
+    const handler = (e) => {
+      if (e.key !== 'scp_terminal_state_v1' || !e.newValue) return;
+      try {
+        const incoming = JSON.parse(e.newValue);
+        if (incoming && Array.isArray(incoming.terminals)) {
+          setState(incoming);
+        }
+      } catch (_) {}
+    };
+    window.addEventListener('storage', handler);
+    return () => window.removeEventListener('storage', handler);
+  }, []);
+
   return [state, setState];
 };
 

@@ -55,11 +55,20 @@ function AdminPanel({ state, setState, onExit, onPreview }) {
     })
   })}));
 
+  const genPassword = () => {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    let pw = '';
+    for (let i = 0; i < 8; i++) {
+      pw += chars[Math.floor(Math.random() * chars.length)];
+    }
+    return pw;
+  };
+
   const addTerminal = () => {
     const newT = {
       id: uid('t'),
       name: 'НОВЫЙ ТЕРМИНАЛ',
-      password: 'changeme-' + Math.floor(Math.random() * 9000 + 1000),
+      password: genPassword(),
       level: 1,
       hostname: 'SITE-' + Math.floor(Math.random() * 99 + 1).toString().padStart(2, '0') + '-NEW',
       operator: 'НЕ НАЗНАЧЕН',
@@ -159,6 +168,12 @@ function AdminPanel({ state, setState, onExit, onPreview }) {
       setSelectedFolderId(null); setSelectedFileId(null);
     },
   });
+
+  const doRestart = () => {
+    SCPStorage.save(state);
+    SCPAudio.granted();
+    alert('✓ Данные синхронизированы и отправлены игровому экрану');
+  };
 
   return (
     <div className="admin-panel">
@@ -284,7 +299,7 @@ function AdminPanel({ state, setState, onExit, onPreview }) {
               {'💾 ВИРУС-ДИСКЕТА СОБРАНА'}
             </label>
             <div className="mono t-dim" style={{fontSize: 13, marginTop: 6, lineHeight: 1.3}}>
-              {'Включите, когда игроки в физической игре соберут вирус-дискету. На экране пароля появится команда /hack — при успехе игроки получат пароль от выбранного ниже терминала.'}
+              {'Включите, когда игроки в физической игре соберут вирус-дискету. На экране пароля появится возможность запустить взлом целевого терминала — при успехе получат пароль.'}
             </div>
 
             <div className="field-row" style={{marginTop: 12}}>
@@ -306,7 +321,7 @@ function AdminPanel({ state, setState, onExit, onPreview }) {
                   const tname = tgt ? tgt.name : '';
                   return tname ? (
                     <div className="mono t-amber" style={{fontSize: 12, marginTop: 6}}>
-                      {'▶ Игроки введут: /hack ' + tname}
+                      {'▶ Игроки видят подсказку о терминале: ' + tname}
                     </div>
                   ) : null;
                 })()}
@@ -334,6 +349,7 @@ function AdminPanel({ state, setState, onExit, onPreview }) {
               {L.importJ}
               <input type="file" accept="application/json,.json" style={{display: 'none'}} onChange={doImport} />
             </label>
+            <button className="btn" onClick={doRestart} style={{backgroundColor: 'rgba(255, 160, 0, 0.3)', borderColor: '#ffa000'}}>⟳ СИНХРОНИЗИРОВАТЬ</button>
             <button className="btn danger" onClick={doReset}>{L.reset}</button>
           </div>
           <div className="mono t-dim" style={{marginTop: 16, lineHeight: 1.4}}>

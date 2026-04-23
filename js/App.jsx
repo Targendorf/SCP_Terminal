@@ -52,6 +52,10 @@ function App() {
   const [hackSnapshot, setHackSnapshot] = _useState(null);
   const [pwInput, setPwInput] = _useState('');
 
+  // Поля из game-state, которые нужны зрителям (транслируются отдельно от localStorage)
+  const [sharedVirusDisk, setSharedVirusDisk] = _useState(false);
+  const [sharedHackTargetId, setSharedHackTargetId] = _useState(null);
+
   const setTweaks = (patch) => {
     setTweaksRaw(t => {
       const next = { ...t, ...patch };
@@ -115,18 +119,30 @@ function App() {
           setCurrentTerm(null);
         }
         if (shared.nav) setRemoteNav(shared.nav);
-        if (shared.pwInput        !== undefined) setPwInput(shared.pwInput);
-        if (shared.hackOpen       !== undefined) setHackOpen(shared.hackOpen);
-        if (shared.hackDone       !== undefined) setHackDone(shared.hackDone);
-        if (shared.hackReward     !== undefined) setHackReward(shared.hackReward);
-        if (shared.hackPuzzleType !== undefined) setHackPuzzleType(shared.hackPuzzleType);
-        if (shared.hackSnapshot   !== undefined) setHackSnapshot(shared.hackSnapshot);
+        if (shared.pwInput          !== undefined) setPwInput(shared.pwInput);
+        if (shared.hackOpen         !== undefined) setHackOpen(shared.hackOpen);
+        if (shared.hackDone         !== undefined) setHackDone(shared.hackDone);
+        if (shared.hackReward       !== undefined) setHackReward(shared.hackReward);
+        if (shared.hackPuzzleType   !== undefined) setHackPuzzleType(shared.hackPuzzleType);
+        if (shared.hackSnapshot     !== undefined) setHackSnapshot(shared.hackSnapshot);
+        if (shared.virusDiskReady   !== undefined) setSharedVirusDisk(shared.virusDiskReady);
+        if (shared.hackTargetTermId !== undefined) setSharedHackTargetId(shared.hackTargetTermId);
       },
     });
   }, []);
 
   const isHost = sessionRole === 'host' || sessionRole === 'offline';
   const isViewer = sessionRole === 'viewer';
+
+  // Зрители получают virusDiskReady/hackTargetTerminalId через broadcast, а не из localStorage
+  const effectiveState = _useMemo(() => {
+    if (!isViewer) return state;
+    return {
+      ...state,
+      virusDiskReady: sharedVirusDisk,
+      hackTargetTerminalId: sharedHackTargetId,
+    };
+  }, [state, isViewer, sharedVirusDisk, sharedHackTargetId]);
 
   // Хост бродкастит стейт
   _useEffect(() => {
@@ -142,8 +158,10 @@ function App() {
       hackPuzzleType,
       hackSnapshot,
       pwInput,
+      virusDiskReady: state.virusDiskReady || false,
+      hackTargetTermId: state.hackTargetTerminalId || null,
     });
-  }, [sessionRole, stage, currentTerm && currentTerm.id, remoteNav && remoteNav.view, remoteNav && remoteNav.folderIdx, remoteNav && remoteNav.fileIdx, hackOpen, hackDone, hackReward, hackPuzzleType, hackSnapshot, pwInput]);
+  }, [sessionRole, stage, currentTerm && currentTerm.id, remoteNav && remoteNav.view, remoteNav && remoteNav.folderIdx, remoteNav && remoteNav.fileIdx, hackOpen, hackDone, hackReward, hackPuzzleType, hackSnapshot, pwInput, state.virusDiskReady, state.hackTargetTerminalId]);
 
   // Трекинг курсора
   _useEffect(() => {
@@ -235,7 +253,7 @@ function App() {
 
           {stage === 'login' && (
             <PasswordScreen
-              state={state}
+              state={effectiveState}
               onLogin={handleLogin}
               onMasterUnlock={handleMasterUnlock}
               lockInfo={lockInfo}

@@ -16,7 +16,7 @@ window.SCP_SEED = {
     {
       "id": "t-site19-recep",
       "name": "ЗОНА-19 / ТЕРМИНАЛ ПРИЁМНОЙ",
-      "password": "valkyrie",
+      "password": "VALKYR3E",
       "level": 1,
       "hostname": "SITE19-RCP-01",
       "operator": "А. СОКОЛОВА",
@@ -58,7 +58,7 @@ window.SCP_SEED = {
     {
       "id": "t-site19-containment",
       "name": "ЗОНА-19 / АРХИВ СОДЕРЖАНИЯ",
-      "password": "keter-rising",
+      "password": "KTER7R1S",
       "level": 3,
       "hostname": "SITE19-CNT-03",
       "operator": "DR. T. BRIGHT",
@@ -112,7 +112,7 @@ window.SCP_SEED = {
     {
       "id": "t-o5-command",
       "name": "КОМАНДОВАНИЕ O5 // СЕКРЕТНО",
-      "password": "oracle-five",
+      "password": "ORCL5F1V",
       "level": 5,
       "hostname": "O5-NET-00",
       "operator": "O5-█",

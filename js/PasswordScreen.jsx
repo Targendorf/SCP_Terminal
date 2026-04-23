@@ -46,7 +46,7 @@ function PasswordScreen({
       setPw('');
       if (onPwChange) onPwChange('');
       SCPAudio.denied();
-      setMsg({ kind: 'err', text: 'УКАЖИТЕ ИМЯ ЦЕЛИ: /hack [имя терминала]' });
+      setMsg({ kind: 'err', text: 'УКАЖИТЕ ИМЯ ЦЕЛИ: ВИРУС-ДИСКЕТА [имя]' });
       return;
     }
     const hackMatch = hackRx.exec(entered);
@@ -256,7 +256,7 @@ function PasswordScreen({
           const tname = tgt ? tgt.name : '?';
           return (
             <span className="t-amber">
-              {'[/hack ' + tname + ' — ВИРУС-ДИСКЕТА ДОСТУПНА]'}
+              {'[' + tname + ' — ВИРУС-ДИСКЕТА АКТИВНА]'}
             </span>
           );
         })()}
@@ -274,9 +274,6 @@ function FoundPasswordsModal({ terms, onClose, onPick }) {
         <h3 className="t-bright" style={{margin: 0}}>
           {'// НАЙДЕННЫЕ ПАРОЛИ //'}
         </h3>
-        <div className="mono t-dim" style={{fontSize: 13, marginBottom: 6}}>
-          {'> Пароли, собранные в ходе настольной игры. Кликните по паролю — он подставится в поле ввода.'}
-        </div>
         {terms.length === 0 && (
           <div className="mono t-dim">{'[ПУСТО]'}</div>
         )}
