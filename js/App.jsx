@@ -2,7 +2,6 @@
 const { useState: _useState, useEffect: _useEffect, useCallback: _useCallback, useRef: _useRef } = React;
 
 const DEFAULT_TWEAKS = /*EDITMODE-BEGIN*/{
-  "lang": "ru",
   "scanlines": 0.35,
   "glow": 1,
   "noise": 0.08,
@@ -225,11 +224,10 @@ function App() {
         <div className="crt-scanlines"></div>
 
         <div className="crt-content">
-          {stage === 'boot' && <BootScreen lang={tweaks.lang} onDone={() => setStage('login')} />}
+          {stage === 'boot' && <BootScreen onDone={() => setStage('login')} />}
 
           {stage === 'adminLogin' && (
             <AdminLoginScreen
-              lang={tweaks.lang}
               state={state}
               onMasterUnlock={handleMasterUnlock}
             />
@@ -237,7 +235,6 @@ function App() {
 
           {stage === 'login' && (
             <PasswordScreen
-              lang={tweaks.lang}
               state={state}
               onLogin={handleLogin}
               onMasterUnlock={handleMasterUnlock}
@@ -253,7 +250,6 @@ function App() {
 
           {stage === 'terminal' && currentTerm && (
             <TerminalBrowser
-              lang={tweaks.lang}
               terminal={currentTerm}
               state={state}
               onExit={previewFromAdmin ? exitPreview : exitTerminal}
@@ -270,7 +266,6 @@ function App() {
 
       {stage === 'admin' && (
         <AdminPanel
-          lang={tweaks.lang}
           state={state}
           setState={setState}
           onExit={exitAdmin}
@@ -279,10 +274,10 @@ function App() {
       )}
 
       {!IS_ADMIN_ROUTE && isHost && !isViewer && (
-        <ControlTransferBtn peers={peers} selfId={SCPSession.selfId} lang={tweaks.lang} />
+        <ControlTransferBtn peers={peers} selfId={SCPSession.selfId} />
       )}
 
-      {!IS_ADMIN_ROUTE && <SessionBadge role={sessionRole} status={sessionStatus} peers={peers} lang={tweaks.lang} />}
+      {!IS_ADMIN_ROUTE && <SessionBadge role={sessionRole} status={sessionStatus} peers={peers} />}
 
       {<TweaksPanel tweaks={tweaks} setTweaks={setTweaks} />}
     </>
@@ -311,10 +306,9 @@ function CursorOverlay({ cursors }) {
 }
 
 // === Кнопка передачи контроля ===
-function ControlTransferBtn({ peers, selfId, lang }) {
+function ControlTransferBtn({ peers, selfId }) {
   const [open, setOpen] = _useState(false);
   const wrapRef = _useRef(null);
-  const t = lang === 'ru';
 
   _useEffect(() => {
     if (!open) return;
@@ -337,12 +331,12 @@ function ControlTransferBtn({ peers, selfId, lang }) {
   return (
     <div className="control-transfer-wrap" ref={wrapRef}>
       <button className="control-transfer-btn" onClick={() => setOpen(o => !o)}>
-        {t ? '⇄ ПЕРЕДАТЬ КОНТРОЛЬ' : '⇄ TRANSFER CONTROL'}
+        { '⇄ ПЕРЕДАТЬ КОНТРОЛЬ' }
       </button>
       {open && (
         <div className="control-transfer-dropdown">
           <div className="mono t-dim" style={{fontSize: 11, padding: '4px 8px', borderBottom: '1px solid var(--phosphor-dim)'}}>
-            {t ? 'Выберите нового хоста:' : 'Select new host:'}
+            { 'Выберите нового хоста:' }
           </div>
           {viewers.map(v => (
             <button key={v.id} className="control-transfer-item" onClick={() => transfer(v.id)}
@@ -357,15 +351,14 @@ function ControlTransferBtn({ peers, selfId, lang }) {
 }
 
 // === Индикатор роли в сессии ===
-function SessionBadge({ role, status, peers, lang }) {
-  const t = lang === 'ru';
+function SessionBadge({ role, status, peers }) {
   let text = '';
   let cls = '';
-  if (status === 'init' || status === 'connecting') { text = t ? 'ПОДКЛЮЧЕНИЕ...' : 'CONNECTING...'; cls = 'session-init'; }
-  else if (role === 'host') { text = (t ? 'КОНТРОЛЬ · ' : 'CONTROL · ') + (peers.length) + (t ? ' уз' : ' nodes'); cls = 'session-host'; }
-  else if (role === 'viewer') { text = (t ? 'ЗРИТЕЛЬ · ' : 'VIEWER · ') + (peers.length) + (t ? ' уз' : ' nodes'); cls = 'session-viewer'; }
-  else if (status === 'offline') { text = t ? 'OFFLINE' : 'OFFLINE'; cls = 'session-offline'; }
-  else if (status === 'disconnected') { text = t ? 'РАЗРЫВ' : 'DISCONNECTED'; cls = 'session-offline'; }
+  if (status === 'init' || status === 'connecting') { text = 'ПОДКЛЮЧЕНИЕ...'; cls = 'session-init'; }
+  else if (role === 'host') { text = 'КОНТРОЛЬ · ' + (peers.length) + ' уз'; cls = 'session-host'; }
+  else if (role === 'viewer') { text = 'ЗРИТЕЛЬ · ' + (peers.length) + ' уз'; cls = 'session-viewer'; }
+  else if (status === 'offline') { text = 'OFFLINE'; cls = 'session-offline'; }
+  else if (status === 'disconnected') { text = 'РАЗРЫВ'; cls = 'session-offline'; }
   else return null;
 
   const self = SCPSession.selfName ? (' [' + SCPSession.selfName + ']') : '';
@@ -373,12 +366,11 @@ function SessionBadge({ role, status, peers, lang }) {
 }
 
 // === Экран входа админа (отдельный маршрут ?admin=1) ===
-function AdminLoginScreen({ lang, state, onMasterUnlock }) {
+function AdminLoginScreen({ state, onMasterUnlock }) {
   const [pw, setPw] = React.useState('');
   const [err, setErr] = React.useState(null);
   const ref = React.useRef(null);
   React.useEffect(() => { if (ref.current) ref.current.focus(); }, []);
-  const t = lang === 'ru';
 
   const submit = (e) => {
     e.preventDefault();
@@ -389,7 +381,7 @@ function AdminLoginScreen({ lang, state, onMasterUnlock }) {
     } else {
       SCPAudio.denied();
       SCPStorage.appendLog({ type: 'admin-bypass', password: pw, ok: false });
-      setErr(t ? 'ОТКАЗАНО' : 'DENIED');
+      setErr('ОТКАЗАНО');
       setPw('');
     }
   };
@@ -402,9 +394,7 @@ function AdminLoginScreen({ lang, state, onMasterUnlock }) {
  ╚════════════════════════════════════════╝
 `}</pre>
       <div className="mono t-dim" style={{textAlign: 'center'}}>
-        {t
-          ? '> Служебный вход. Мультиплеер-сессия не активна.\n> Введите мастер-пароль.'
-          : '> Service entrance. Multiplayer session is inactive.\n> Enter master password.'}
+        { '> Служебный вход. Мультиплеер-сессия не активна.\n> Введите мастер-пароль.' }
       </div>
       <form onSubmit={submit} className="input-line" style={{width: 'min(420px, 90vw)'}}>
         <span className="t-amber">MASTER:</span>
@@ -415,13 +405,13 @@ function AdminLoginScreen({ lang, state, onMasterUnlock }) {
           spellCheck="false"
           value={pw}
           onChange={e => { setPw(e.target.value); if (e.target.value) SCPAudio.key(); }}
-          placeholder={t ? 'мастер-пароль' : 'master password'}
+          placeholder="мастер-пароль"
         />
         <span className="caret"></span>
       </form>
       {err && <div className="mono t-red">{'>> ' + err + ' <<'}</div>}
       <div className="mono t-dim" style={{fontSize: 12, textAlign: 'center'}}>
-        {t ? 'Чтобы вернуться к общему терминалу — уберите ?admin=1 из адреса.' : 'Remove ?admin=1 from URL to return to the shared terminal.'}
+        { 'Чтобы вернуться к общему терминалу — уберите ?admin=1 из адреса.' }
       </div>
     </div>
   );

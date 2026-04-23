@@ -1,26 +1,10 @@
 // Экран загрузки BIOS / POST
-function BootScreen({ lang, onDone }) {
+function BootScreen({ onDone }) {
   const [lines, setLines] = useState([]);
   const [done, setDone] = useState(false);
 
   useEffect(() => {
-    const en = [
-      { t: 0,    s: 'SCP-OS v4.17.3', cls: 't-bright' },
-      { t: 50,   s: '(c) 1991 Foundation Systems Division. All rights reserved.' },
-      { t: 200,  s: '' },
-      { t: 250,  s: 'Performing POST...' },
-      { t: 600,  s: '  CPU ........... 80386DX @ 33 MHz  [OK]' },
-      { t: 750,  s: '  MEMORY ........ 4096 KB            [OK]' },
-      { t: 900,  s: '  HDD ........... ST-225  20 MB      [OK]' },
-      { t: 1050, s: '  VIDEO ......... VGA  640x480       [OK]' },
-      { t: 1200, s: '  CRYPTO UNIT ... K-7 CIPHER         [OK]' },
-      { t: 1350, s: '' },
-      { t: 1400, s: 'Connecting to SITE-NET... ', cls: 't-dim' },
-      { t: 1900, s: '[ESTABLISHED]', cls: 't-bright' },
-      { t: 2000, s: 'Loading credential service...' },
-      { t: 2400, s: 'Ready.', cls: 't-bright' },
-    ];
-    const ru = [
+    const script = [
       { t: 0,    s: 'ОС-SCP v4.17.3', cls: 't-bright' },
       { t: 50,   s: '(c) 1991 Отдел системных технологий Фонда. Все права защищены.' },
       { t: 200,  s: '' },
@@ -36,7 +20,6 @@ function BootScreen({ lang, onDone }) {
       { t: 2000, s: 'Загрузка службы учётных записей...' },
       { t: 2400, s: 'Готов.', cls: 't-bright' },
     ];
-    const script = lang === 'ru' ? ru : en;
     const timers = [];
     script.forEach((line, i) => {
       timers.push(setTimeout(() => {
@@ -47,7 +30,7 @@ function BootScreen({ lang, onDone }) {
     });
     timers.push(setTimeout(() => setDone(true), script[script.length - 1].t + 600));
     return () => timers.forEach(clearTimeout);
-  }, [lang]);
+  }, []);
 
   useEffect(() => {
     if (!done) return;
@@ -72,7 +55,7 @@ function BootScreen({ lang, onDone }) {
         <>
           <div>&nbsp;</div>
           <div className="t-dim">
-            {lang === 'ru' ? 'Нажмите любую клавишу для продолжения' : 'Press any key to continue'}
+            {'Нажмите любую клавишу для продолжения'}
             <span className="caret" style={{marginLeft: 6}}></span>
           </div>
         </>

@@ -10,13 +10,6 @@ function TweaksPanel({ tweaks, setTweaks }) {
     <div className="tweaks-panel">
       <h3>TWEAKS // НАСТРОЙКИ</h3>
 
-      <div className="tweak-row">
-        <label>LANG / ЯЗЫК</label>
-        <select value={tweaks.lang} onChange={e => setTweaks({lang: e.target.value})}>
-          <option value="en">English</option>
-          <option value="ru">Русский</option>
-        </select>
-      </div>
 
       <div className="tweak-row">
         <label>SCANLINES {Math.round(tweaks.scanlines * 100)}%</label>

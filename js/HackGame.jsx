@@ -3,7 +3,7 @@
 
 const HACK_PUZZLE_TYPES = ['wordsearch', 'sequence', 'cipher', 'memory', 'pipe', 'typer'];
 
-function getHackReward(state, lang) {
+function getHackReward(state) {
   const list = state.terminals || [];
   if (!list.length) return null;
   let term = null;
@@ -11,7 +11,7 @@ function getHackReward(state, lang) {
   if (!term) return null;
   return {
     pw: term.password,
-    name: lang === 'ru' ? (term.nameRu || term.name) : term.name,
+    name: term.name,
     host: term.hostname || '',
   };
 }
@@ -22,23 +22,22 @@ function pickHackPuzzle(adminChoice) {
 }
 
 const PUZZLE_TITLES = {
-  wordsearch: { ru: 'ПОИСК СЛОВ', en: 'WORD SEARCH' },
-  sequence:   { ru: 'ЗАМОК ПОСЛЕДОВАТЕЛЬНОСТИ', en: 'SEQUENCE LOCK' },
-  cipher:     { ru: 'ДЕШИФРАТОР ЦЕЗАРЯ', en: 'CAESAR DECODE' },
-  memory:     { ru: 'ПАМЯТЬ СЕТКИ', en: 'MEMORY GRID' },
-  pipe:       { ru: 'СХЕМА ПИТАНИЯ', en: 'PIPE CIRCUIT' },
-  typer:      { ru: 'ВВОД КОДА', en: 'SPEED TYPER' },
+  wordsearch: 'ПОИСК СЛОВ',
+  sequence:   'ЗАМОК ПОСЛЕДОВАТЕЛЬНОСТИ',
+  cipher:     'ДЕШИФРАТОР ЦЕЗАРЯ',
+  memory:     'ПАМЯТЬ СЕТКИ',
+  pipe:       'СХЕМА ПИТАНИЯ',
+  typer:      'ВВОД КОДА',
 };
 
-function HackGame({ lang, state, onSuccess, onCancel, onSnapshot, onDone, readOnly, viewState }) {
-  const t = lang === 'ru';
+function HackGame({ state, onSuccess, onCancel, onSnapshot, onDone, readOnly, viewState }) {
   const [done, setDone] = React.useState(false);
-  const reward = React.useMemo(() => getHackReward(state, lang), []);
+  const reward = React.useMemo(() => getHackReward(state), []);
   const puzzleType = React.useMemo(() => pickHackPuzzle(state.hackPuzzleType), []);
 
   // When viewer, use the puzzle type from host's broadcast; otherwise use locally picked type.
   const activePuzzleType = (readOnly && viewState) ? (viewState.puzzleType || 'wordsearch') : puzzleType;
-  const activeTitle = PUZZLE_TITLES[activePuzzleType]?.[t ? 'ru' : 'en'] || activePuzzleType;
+  const activeTitle = PUZZLE_TITLES[activePuzzleType] || activePuzzleType;
   const effectiveDone   = (readOnly && viewState) ? (viewState.done   || false) : done;
   const effectiveReward = (readOnly && viewState) ? (viewState.reward || null)  : reward;
   const effectiveSnap   = (readOnly && viewState) ? (viewState.snapshot || null) : null;
@@ -71,24 +70,21 @@ function HackGame({ lang, state, onSuccess, onCancel, onSnapshot, onDone, readOn
       <div className="modal hack-modal">
         {readOnly && (
           <div className="mono t-amber" style={{textAlign: 'center', fontSize: 13, padding: '2px 0', borderBottom: '1px solid var(--amber)', marginBottom: 4}}>
-            {'>> '}{t ? 'ЗРИТЕЛЬСКИЙ РЕЖИМ — ТОЛЬКО ПРОСМОТР' : 'VIEWER MODE — READ ONLY'}{' <<'}
+            {'>> ЗРИТЕЛЬСКИЙ РЕЖИМ — ТОЛЬКО ПРОСМОТР <<'}
           </div>
         )}
         <div className="hack-head">
           <h3 className="t-amber" style={{margin: 0}}>
-            {'[' + (t ? 'ВИРУС-ДИСКЕТА' : 'VIRUS DISK') + ' // ' + activeTitle + ']'}
+            {'[ВИРУС-ДИСКЕТА // ' + activeTitle + ']'}
           </h3>
         </div>
 
         {!effectiveDone && (
           <Puzzle
-            lang={lang}
             onWin={() => {
               if (!readOnly) {
                 setDone(true);
                 SCPAudio.granted();
-                // reward is host-local (useMemo). App.hackHostCallbacks.onDone broadcasts it as hackReward,
-                // which viewers receive as viewState.reward → effectiveReward. Keep in sync with App.jsx Task 5.
                 if (onDone) onDone(reward);
               }
             }}
@@ -99,19 +95,19 @@ function HackGame({ lang, state, onSuccess, onCancel, onSnapshot, onDone, readOn
 
         {effectiveDone && effectiveReward && (
           <div className="mono hack-reward">
-            <div className="t-bright">{t ? '>> ДОСТУП РАЗРЕШЁН <<' : '>> ACCESS GRANTED <<'}</div>
-            <div className="t-dim">{t ? 'Пароль от ' : 'Password for '}{effectiveReward.name}:</div>
+            <div className="t-bright">{'>> ДОСТУП РАЗРЕШЁН <<'}</div>
+            <div className="t-dim">{'Пароль от '}{effectiveReward.name}:</div>
             <div className="t-amber" style={{fontSize: 22, letterSpacing: '0.1em', marginTop: 4}}>{effectiveReward.pw}</div>
           </div>
         )}
         {effectiveDone && !effectiveReward && (
-          <div className="mono t-red">{t ? 'ЦЕЛЬ НЕ НАСТРОЕНА' : 'NO TARGET CONFIGURED'}</div>
+          <div className="mono t-red">{'ЦЕЛЬ НЕ НАСТРОЕНА'}</div>
         )}
 
         <div className="modal-actions" style={{marginTop: 4}}>
-          <button className="btn" onClick={onCancel}>{t ? 'ОТМЕНА' : 'CANCEL'}</button>
+          <button className="btn" onClick={onCancel}>{'ОТМЕНА'}</button>
           {effectiveDone && effectiveReward && !readOnly && (
-            <button className="btn" onClick={() => onSuccess(effectiveReward)}>{t ? 'ИСПОЛЬЗОВАТЬ' : 'USE'}</button>
+            <button className="btn" onClick={() => onSuccess(effectiveReward)}>{'ИСПОЛЬЗОВАТЬ'}</button>
           )}
         </div>
       </div>
@@ -122,13 +118,11 @@ function HackGame({ lang, state, onSuccess, onCancel, onSnapshot, onDone, readOn
 // ======================================================================
 // 1. WORD SEARCH — поиск слов 15×15. Только → и ↓. Слова ≥ 4 букв.
 // ======================================================================
-function WordSearchPuzzle({ lang, onWin, onStateChange, readOnlySnapshot }) {
+function WordSearchPuzzle({ onWin, onStateChange, readOnlySnapshot }) {
   const SIZE = 15;
-  const t = lang === 'ru';
   const WORDS_RU = ['КЕТЕР','ЕВКЛИД','АНОМАЛ','СЕКТОР','ФОНД','ОБЪЕКТ','ПРОТОКОЛ','АРХИВ','ЗОНА','СЕКРЕТ','ДОСТУП','ПРОРЫВ','ПРИЗРАК','ВАКЦИНА','БАРЬЕР','СИГНАЛ','РАЗЛОМ','ЦИФРА','МОЛНИЯ','АГЕНТ','ГРУППА','ОХРАНА','МАРКЕР','ДОКЛАД','СКАНЕР','КОДОН','ГАММА','ОМЕГА','РЕАКТОР','МУТАНТ','ВИРУС','МАЯК','ПЕЩЕРА','СИЯНИЕ','ПОРТАЛ'];
-  const WORDS_EN = ['KETER','EUCLID','ANOMALY','SECTOR','FOUND','OBJECT','PROTOCOL','ARCHIVE','SITE','CONTAIN','SECRET','ACCESS','BREACH','GHOST','VACCINE','BARRIER','SIGNAL','RIFT','CIPHER','OMEGA','AGENT','SQUAD','GUARD','MARKER','REPORT','SCANNER','CODON','GAMMA','DELTA','REACTOR','MUTANT','VIRUS','BEACON','CAVERN','PORTAL'];
 
-  const game = React.useMemo(() => makeGrid(SIZE, t ? WORDS_RU : WORDS_EN), []);
+  const game = React.useMemo(() => makeGrid(SIZE, WORDS_RU), []);
   const [found, setFound] = React.useState([]);
   const [dragging, setDragging] = React.useState(null);
   const [current, setCurrent] = React.useState(null);
@@ -201,7 +195,7 @@ function WordSearchPuzzle({ lang, onWin, onStateChange, readOnlySnapshot }) {
   return (
     <>
       <div className="mono t-dim" style={{fontSize: 13, lineHeight: 1.3}}>
-        {t ? '> Найдите 3 слова. Только СЛЕВА→НАПРАВО или СВЕРХУ↓ВНИЗ.' : '> Find 3 words. Only LEFT→RIGHT or TOP↓BOTTOM.'}
+        {'> Найдите 3 слова. Только СЛЕВА→НАПРАВО или СВЕРХУ↓ВНИЗ.'}
       </div>
       <div className="hack-words mono" style={{fontSize: 14}}>
         {game.words.map((w, i) => (
@@ -258,7 +252,7 @@ function makeGrid(size, pool) {
       picks.push(word); placed = true;
     }
   }
-  const alpha = /[А-ЯЁ]/.test(picks[0] || '') ? 'АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ' : 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  const alpha = 'АБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ';
   for (let r = 0; r < size; r++) for (let c = 0; c < size; c++) {
     if (grid[r][c] === null) grid[r][c] = alpha[Math.floor(Math.random() * alpha.length)];
   }

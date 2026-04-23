@@ -1,11 +1,10 @@
 // Дополнительные головоломки для /hack. Каждая — самостоятельный React-компонент
-// с контрактом: props { lang, onWin, onStateChange?, readOnlySnapshot? }, вызывает onWin() при успехе.
+// с контрактом: props { onWin, onStateChange?, readOnlySnapshot? }, вызывает onWin() при успехе.
 
 // =====================================================================
 // 1. SEQUENCE LOCK — повторить последовательность (Simon Says)
 // =====================================================================
-function SequencePuzzle({ lang, onWin, onStateChange, readOnlySnapshot }) {
-  const t = lang === 'ru';
+function SequencePuzzle({ onWin, onStateChange, readOnlySnapshot }) {
   const SYMBOLS = ['▲', '◆', '●', '■', '★'];
   const COLORS = ['#ff5566', '#ffb000', '#66ccff', '#33ff66', '#cc88ff'];
   const TOTAL_ROUNDS = 4;
@@ -72,10 +71,10 @@ function SequencePuzzle({ lang, onWin, onStateChange, readOnlySnapshot }) {
   return (
     <div className="seq-box">
       <div className="mono t-dim" style={{fontSize: 13}}>
-        {t ? '> Запомните последовательность и повторите её нажатиями.' : '> Memorize the sequence and tap it back.'}
+        {'> Запомните последовательность и повторите её нажатиями.'}
       </div>
       <div className="mono t-dim" style={{fontSize: 13}}>
-        {t ? 'РАУНД' : 'ROUND'}: {displayRound}/{TOTAL_ROUNDS} · {t ? 'ОШИБКИ' : 'ERRORS'}: {displayErrors}/3
+        {'РАУНД'}: {displayRound}/{TOTAL_ROUNDS} · {'ОШИБКИ'}: {displayErrors}/3
       </div>
       <div className="seq-pads">
         {SYMBOLS.map((s, i) => (
@@ -89,7 +88,7 @@ function SequencePuzzle({ lang, onWin, onStateChange, readOnlySnapshot }) {
         ))}
       </div>
       <div className="mono t-dim" style={{fontSize: 12, textAlign: 'center'}}>
-        {displayPhase === 'show' ? (t ? '// ТРАНСЛЯЦИЯ //' : '// TRANSMITTING //') : (t ? '// ВВОД //' : '// INPUT //')}
+        {displayPhase === 'show' ? '// ТРАНСЛЯЦИЯ //' : '// ВВОД //'}
       </div>
     </div>
   );
@@ -98,14 +97,12 @@ function SequencePuzzle({ lang, onWin, onStateChange, readOnlySnapshot }) {
 // =====================================================================
 // 3. CIPHER DECODE — шифр Цезаря. Игрок двигает сдвиг до читаемости.
 // =====================================================================
-function CipherPuzzle({ lang, onWin, onStateChange, readOnlySnapshot }) {
-  const t = lang === 'ru';
-  const ALPHA = t ? 'АБВГДЕЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ' : 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+function CipherPuzzle({ onWin, onStateChange, readOnlySnapshot }) {
+  const ALPHA = 'АБВГДЕЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ';
   const PHRASES_RU = ['ПРОРЫВ ПЕРИМЕТРА СЕКТОР СЕМЬ', 'ПРОТОКОЛ ОМЕГА АКТИВЕН', 'ДОСТУП РАЗРЕШЕН УРОВЕНЬ ПЯТЬ', 'ЭВАКУАЦИЯ ПЕРСОНАЛА КЛАСС КЕТЕР', 'КОНТЕЙНМЕНТ НАРУШЕН ПОВТОРЯЮ НАРУШЕН'];
-  const PHRASES_EN = ['CONTAINMENT BREACH SECTOR SEVEN', 'OMEGA PROTOCOL ACTIVE', 'ACCESS AUTHORIZED LEVEL FIVE', 'EVACUATE PERSONNEL CLASS KETER', 'PERIMETER COMPROMISED REPEAT COMPROMISED'];
 
   const { target, encrypted, rightShift } = React.useMemo(() => {
-    const list = t ? PHRASES_RU : PHRASES_EN;
+    const list = PHRASES_RU;
     const phrase = list[Math.floor(Math.random() * list.length)];
     const sh = 3 + Math.floor(Math.random() * (ALPHA.length - 5));
     return { target: phrase, encrypted: caesarShift(phrase, sh, ALPHA), rightShift: sh };
@@ -125,7 +122,7 @@ function CipherPuzzle({ lang, onWin, onStateChange, readOnlySnapshot }) {
       if (!wonRef.current) { wonRef.current = true; SCPAudio.granted(); onWin(); }
     } else {
       SCPAudio.error();
-      setMsg(t ? 'ТЕКСТ НЕ ЧИТАЕТСЯ' : 'TEXT UNREADABLE');
+      setMsg('ТЕКСТ НЕ ЧИТАЕТСЯ');
       setTimeout(() => setMsg(null), 1200);
     }
   };
@@ -136,23 +133,23 @@ function CipherPuzzle({ lang, onWin, onStateChange, readOnlySnapshot }) {
   return (
     <div className="cipher-box">
       <div className="mono t-dim" style={{fontSize: 13}}>
-        {t ? '> Подберите сдвиг, чтобы расшифровать перехват.' : '> Adjust the shift to decode the intercept.'}
+        {'> Подберите сдвиг, чтобы расшифровать перехват.'}
       </div>
       <div className="cipher-field">
-        <div className="t-dim" style={{fontSize: 12}}>ENCRYPTED //</div>
+        <div className="t-dim" style={{fontSize: 12}}>ЗАШИФРОВАНО //</div>
         <div className="cipher-text t-amber">{encrypted}</div>
       </div>
       <div className="cipher-controls">
         <button className="btn"
           onClick={readOnlySnapshot ? undefined : () => { setUserShift(s => (s - 1 + ALPHA.length) % ALPHA.length); SCPAudio.key(); }}
           disabled={!!readOnlySnapshot}>‹ −1</button>
-        <div className="cipher-shift t-bright">SHIFT = {displayShift}</div>
+        <div className="cipher-shift t-bright">СДВИГ = {displayShift}</div>
         <button className="btn"
           onClick={readOnlySnapshot ? undefined : () => { setUserShift(s => (s + 1) % ALPHA.length); SCPAudio.key(); }}
           disabled={!!readOnlySnapshot}>+1 ›</button>
       </div>
       <div className="cipher-field">
-        <div className="t-dim" style={{fontSize: 12}}>DECRYPTED //</div>
+        <div className="t-dim" style={{fontSize: 12}}>РАСШИФРОВАНО //</div>
         <div className="cipher-text t-bright">{displayDecrypted}</div>
       </div>
       {msg && <div className="mono t-red" style={{textAlign: 'center'}}>{'>> ' + msg + ' <<'}</div>}
@@ -160,7 +157,7 @@ function CipherPuzzle({ lang, onWin, onStateChange, readOnlySnapshot }) {
         onClick={readOnlySnapshot ? undefined : tryLock}
         disabled={!!readOnlySnapshot}
         style={{alignSelf: 'center', minWidth: 140}}>
-        {t ? 'ПОДТВЕРДИТЬ' : 'LOCK'}
+        {'ПОДТВЕРДИТЬ'}
       </button>
     </div>
   );
@@ -177,8 +174,7 @@ function caesarShift(text, shift, alpha) {
 // =====================================================================
 // 4. MEMORY GRID — запомнить подсвеченные клетки и кликнуть их снова
 // =====================================================================
-function MemoryPuzzle({ lang, onWin, onStateChange, readOnlySnapshot }) {
-  const t = lang === 'ru';
+function MemoryPuzzle({ onWin, onStateChange, readOnlySnapshot }) {
   const SIZE = 5;
   const ROUNDS = 3;
   const [round, setRound] = React.useState(0);
@@ -238,10 +234,10 @@ function MemoryPuzzle({ lang, onWin, onStateChange, readOnlySnapshot }) {
   return (
     <div className={'memgrid-box' + (err ? ' err' : '')}>
       <div className="mono t-dim" style={{fontSize: 13}}>
-        {t ? '> Запомните клетки и нажмите их после отсчёта.' : '> Memorize the cells and tap them back.'}
+        {'> Запомните клетки и нажмите их после отсчёта.'}
       </div>
       <div className="mono t-dim" style={{fontSize: 13, textAlign: 'center'}}>
-        {t ? 'РАУНД' : 'ROUND'}: {displayRound + 1}/{ROUNDS} · {displayPhase === 'show' ? (t ? 'ЗАПОМНИТЕ' : 'MEMORIZE') : (t ? 'ВВОД' : 'INPUT')}
+        {'РАУНД'}: {displayRound + 1}/{ROUNDS} · {displayPhase === 'show' ? 'ЗАПОМНИТЕ' : 'ВВОД'}
       </div>
       <div className="memgrid">
         {Array.from({length: SIZE * SIZE}, (_, i) => {
@@ -263,8 +259,7 @@ function MemoryPuzzle({ lang, onWin, onStateChange, readOnlySnapshot }) {
 // =====================================================================
 // 5. PIPE CONNECT — поворачивай сегменты, соедини вход с выходом
 // =====================================================================
-function PipePuzzle({ lang, onWin, onStateChange, readOnlySnapshot }) {
-  const t = lang === 'ru';
+function PipePuzzle({ onWin, onStateChange, readOnlySnapshot }) {
   const W = 5, H = 4;
   const START = { x: 0, y: 1 };
   const END = { x: W - 1, y: H - 2 };
@@ -327,7 +322,7 @@ function PipePuzzle({ lang, onWin, onStateChange, readOnlySnapshot }) {
   return (
     <div className="pipe-box">
       <div className="mono t-dim" style={{fontSize: 13}}>
-        {t ? '> Кликайте по трубам — они вращаются. Соедините вход [←] с выходом [→].' : '> Click pipes to rotate. Connect inlet [←] to outlet [→].'}
+        {'> Кликайте по трубам — они вращаются. Соедините вход [←] с выходом [→].'}
       </div>
       <div className="pipe-wrap">
         <div className="pipe-port">◄</div>
@@ -353,8 +348,7 @@ function pipeChar(m) {
 // =====================================================================
 // 7. SPEED TYPER — ввести код за 15 секунд
 // =====================================================================
-function TyperPuzzle({ lang, onWin, onStateChange, readOnlySnapshot }) {
-  const t = lang === 'ru';
+function TyperPuzzle({ onWin, onStateChange, readOnlySnapshot }) {
   const target = React.useMemo(() => {
     const parts = ['SCP', String(Math.floor(Math.random() * 900 + 100)), 'ACC', randHex(6), randHex(4)];
     return parts.join('-');
@@ -383,7 +377,7 @@ function TyperPuzzle({ lang, onWin, onStateChange, readOnlySnapshot }) {
       if (!wonRef.current) { wonRef.current = true; SCPAudio.granted(); onWin(); }
     } else {
       SCPAudio.error();
-      setMsg(t ? 'НЕТОЧНЫЙ КОД' : 'CODE MISMATCH');
+      setMsg('НЕТОЧНЫЙ КОД');
       setTimeout(() => setMsg(null), 900);
     }
   };
@@ -401,14 +395,14 @@ function TyperPuzzle({ lang, onWin, onStateChange, readOnlySnapshot }) {
   return (
     <form onSubmit={readOnlySnapshot ? e => e.preventDefault() : onSubmit} className="typer-box">
       <div className="mono t-dim" style={{fontSize: 13}}>
-        {t ? '> Введите код ТОЧНО, как показан. Время ограничено.' : '> Type the code EXACTLY as shown. Time is limited.'}
+        {'> Введите код ТОЧНО, как показан. Время ограничено.'}
       </div>
       <div className="mono" style={{textAlign: 'center'}}>
-        <div className="t-dim" style={{fontSize: 12}}>{t ? 'ЦЕЛЬ' : 'TARGET'}</div>
+        <div className="t-dim" style={{fontSize: 12}}>{'ЦЕЛЬ'}</div>
         <div className="typer-target t-amber">{target}</div>
       </div>
       <div className="mono" style={{textAlign: 'center'}}>
-        <div className="t-dim" style={{fontSize: 12}}>{t ? 'ВВОД' : 'INPUT'}</div>
+        <div className="t-dim" style={{fontSize: 12}}>{'ВВОД'}</div>
         <div className="typer-diff">{diff}</div>
       </div>
       <input ref={ref} className="typer-input" value={displayInput}
@@ -416,13 +410,13 @@ function TyperPuzzle({ lang, onWin, onStateChange, readOnlySnapshot }) {
         disabled={timeLeft <= 0 || !!readOnlySnapshot}
         spellCheck="false" autoComplete="off" />
       <div className="mono t-dim" style={{textAlign: 'center'}}>
-        {t ? 'ОСТАЛОСЬ' : 'TIME'}: <span className={displayTimeLeft < 5 ? 't-red' : 't-bright'}>{displayTimeLeft.toFixed(1)}s</span>
+        {'ОСТАЛОСЬ'}: <span className={displayTimeLeft < 5 ? 't-red' : 't-bright'}>{displayTimeLeft.toFixed(1)}s</span>
       </div>
       {msg && <div className="mono t-red" style={{textAlign: 'center'}}>{'>> ' + msg + ' <<'}</div>}
       <button type="submit" className="btn"
         disabled={displayTimeLeft <= 0 || !!readOnlySnapshot}
         style={{alignSelf: 'center', minWidth: 140}}>
-        {t ? 'ПОДТВЕРДИТЬ' : 'SUBMIT'}
+        {'ПОДТВЕРДИТЬ'}
       </button>
     </form>
   );

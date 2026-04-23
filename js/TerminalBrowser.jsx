@@ -1,5 +1,5 @@
 // Браузер файлов: навигация по папкам и чтение файлов
-function TerminalBrowser({ lang, terminal, state, onExit, readOnly = false, syncNav = null, onNav = null }) {
+function TerminalBrowser({ terminal, state, onExit, readOnly = false, syncNav = null, onNav = null }) {
   // view: 'folders' | 'files' | 'file' | 'cmd'
   const [view, setView] = useState(syncNav?.view || 'folders');
   const [folderIdx, setFolderIdx] = useState(syncNav?.folderIdx || 0);
@@ -29,9 +29,9 @@ function TerminalBrowser({ lang, terminal, state, onExit, readOnly = false, sync
   const files = curFolder ? curFolder.files || [] : [];
   const curFile = files[fileIdx];
 
-  const tName = lang === 'ru' ? (terminal.nameRu || terminal.name) : terminal.name;
-  const motd = lang === 'ru' ? (terminal.motdRu || terminal.motd) : terminal.motd;
-  const operator = lang === 'ru' ? (terminal.operator || terminal.operatorEn) : (terminal.operatorEn || terminal.operator);
+  const tName = terminal.name;
+  const motd = terminal.motd;
+  const operator = terminal.operator;
 
   // Клавиатурная навигация
   useEffect(() => {
@@ -95,53 +95,50 @@ function TerminalBrowser({ lang, terminal, state, onExit, readOnly = false, sync
 
     if (c === 'help' || c === '?' || c === 'помощь') {
       append([
-        out(lang === 'ru' ? 'Доступные команды:' : 'Available commands:', 't-bright'),
-        out('  ls, dir           — ' + (lang === 'ru' ? 'список' : 'list')),
-        out('  cd <folder>       — ' + (lang === 'ru' ? 'войти в папку' : 'enter folder')),
-        out('  cd ..             — ' + (lang === 'ru' ? 'наверх' : 'go up')),
-        out('  cat <file>        — ' + (lang === 'ru' ? 'открыть файл' : 'open file')),
-        out('  open <file>       — ' + (lang === 'ru' ? 'то же, что cat' : 'same as cat')),
-        out('  clear, cls        — ' + (lang === 'ru' ? 'очистить экран' : 'clear screen')),
-        out('  whoami            — ' + (lang === 'ru' ? 'текущий оператор' : 'current operator')),
-        out('  logout, exit      — ' + (lang === 'ru' ? 'выйти из терминала' : 'log out')),
-        out('  date              — ' + (lang === 'ru' ? 'текущая дата' : 'current date')),
+        out('Доступные команды:', 't-bright'),
+        out('  ls, dir           — список'),
+        out('  cd <folder>       — войти в папку'),
+        out('  cd ..             — наверх'),
+        out('  cat <file>        — открыть файл'),
+        out('  open <file>       — то же, что cat'),
+        out('  clear, cls        — очистить экран'),
+        out('  whoami            — текущий оператор'),
+        out('  logout, exit      — выйти из терминала'),
+        out('  date              — текущая дата'),
       ]);
     } else if (c === 'ls' || c === 'dir') {
       if (view === 'folders' || view === 'cmd') {
         append([
-          out(lang === 'ru' ? '[ПАПКИ]' : '[FOLDERS]', 't-bright'),
-          ...folders.map(f => out('  <DIR>  ' + (lang === 'ru' ? (f.nameRu || f.name) : f.name))),
+          out('[ПАПКИ]', 't-bright'),
+          ...folders.map(f => out('  <DIR>  ' + f.name)),
         ]);
       } else if (view === 'files') {
         append([
-          out(lang === 'ru' ? '[ФАЙЛЫ В ' + (curFolder.nameRu || curFolder.name) + ']' : '[FILES IN ' + curFolder.name + ']', 't-bright'),
-          ...files.map(f => out('  ' + (lang === 'ru' ? (f.nameRu || f.name) : f.name))),
+          out('[ФАЙЛЫ В ' + curFolder.name + ']', 't-bright'),
+          ...files.map(f => out('  ' + f.name)),
         ]);
       }
     } else if (c === 'cd') {
       if (arg === '..') { setView('folders'); append([out('> ..')]); }
       else {
-        const i = folders.findIndex(f => (f.name.toLowerCase() === arg.toLowerCase()) || ((f.nameRu || '').toLowerCase() === arg.toLowerCase()));
+        const i = folders.findIndex(f => f.name.toLowerCase() === arg.toLowerCase());
         if (i >= 0) { setFolderIdx(i); setView('files'); setFileIdx(0); append([out('> cd ' + arg, 't-bright')]); }
-        else append([out(lang === 'ru' ? 'Папка не найдена: ' + arg : 'Folder not found: ' + arg, 't-red')]);
+        else append([out('Папка не найдена: ' + arg, 't-red')]);
       }
     } else if (c === 'cat' || c === 'open' || c === 'type') {
       // найдём файл в текущей папке или во всех
       const curFiles = curFolder ? curFolder.files || [] : [];
-      let i = curFiles.findIndex(f => (f.name.toLowerCase() === arg.toLowerCase()) || ((f.nameRu || '').toLowerCase() === arg.toLowerCase()));
+      let i = curFiles.findIndex(f => f.name.toLowerCase() === arg.toLowerCase());
       if (i >= 0) { setFileIdx(i); setView('file'); append([out('> open ' + arg, 't-bright')]); }
-      else append([out(lang === 'ru' ? 'Файл не найден: ' + arg : 'File not found: ' + arg, 't-red')]);
+      else append([out('Файл не найден: ' + arg, 't-red')]);
     } else if (c === 'clear' || c === 'cls') {
       setCmdLog([]);
     } else if (c === 'whoami') {
       append([out('> ' + operator + ' @ ' + terminal.hostname, 't-bright')]);
     } else if (c === 'date') {
-      append([out('> ' + formatRetroDate(new Date(), lang), 't-bright')]);
-    } else if (c === 'logout' || c === 'exit' || c === 'quit') {
-      SCPAudio.beep(300, 0.1);
-      onExit();
+      append([out('> ' + formatRetroDate(new Date()), 't-bright')]);
     } else {
-      append([out(lang === 'ru' ? 'Неизвестная команда: ' + c + '. help — справка.' : 'Unknown command: ' + c + '. Try: help.', 't-red')]);
+      append([out('Неизвестная команда: ' + c + '. help — справка.', 't-red')]);
       SCPAudio.error();
     }
   };
@@ -154,8 +151,8 @@ function TerminalBrowser({ lang, terminal, state, onExit, readOnly = false, sync
   // Typewriter для файла
   const fileText = useMemo(() => {
     if (!curFile) return '';
-    return lang === 'ru' ? (curFile.contentRu || curFile.contentEn || '') : (curFile.contentEn || curFile.contentRu || '');
-  }, [curFile, lang]);
+    return (curFile.content || '');
+  }, [curFile]);
   const [typedText, typedDone] = useTypewriter(view === 'file' ? fileText : '', 4);
 
   const pickFolder = (i) => { if (readOnly) return; setFolderIdx(i); setView('files'); setFileIdx(0); SCPAudio.beep(620, 0.04); };
@@ -169,14 +166,14 @@ function TerminalBrowser({ lang, terminal, state, onExit, readOnly = false, sync
         <div>
           <div className="t-bright" style={{fontSize: 'clamp(18px, 1.8vw, 26px)'}}>{'[' + terminal.hostname + ']'} {tName}</div>
           <div className="t-dim">
-            {lang === 'ru' ? 'ОПЕРАТОР: ' : 'OPERATOR: '}{operator}
+            {'ОПЕРАТОР: '}{operator}
             {' · '}
-            <span className={'pill lvl-' + (terminal.level || 1)}>{levelLabel(terminal.level || 1, lang)}</span>
+            <span className={'pill lvl-' + (terminal.level || 1)}>{levelLabel(terminal.level || 1)}</span>
           </div>
         </div>
         <div className="t-dim" style={{textAlign: 'right'}}>
           <div>{state.meta.build}</div>
-          <ClockLine lang={lang} />
+          <ClockLine />
         </div>
       </div>
 
@@ -190,13 +187,13 @@ function TerminalBrowser({ lang, terminal, state, onExit, readOnly = false, sync
       {/* CONTENT */}
       <div className="grow" style={{display: 'flex', flexDirection: 'column', minHeight: 0}}>
         {view === 'folders' && (
-          <FolderList lang={lang} folders={folders} activeIdx={folderIdx} onPick={pickFolder} />
+          <FolderList folders={folders} activeIdx={folderIdx} onPick={pickFolder} />
         )}
         {view === 'files' && curFolder && (
-          <FileList lang={lang} folder={curFolder} activeIdx={fileIdx} onPick={pickFile} onBack={backFolders} />
+          <FileList folder={curFolder} activeIdx={fileIdx} onPick={pickFile} onBack={backFolders} />
         )}
         {view === 'file' && curFile && (
-          <FileViewer lang={lang} file={curFile} text={typedText} done={typedDone} viewRef={fileViewRef} />
+          <FileViewer file={curFile} text={typedText} done={typedDone} viewRef={fileViewRef} />
         )}
       </div>
 
@@ -228,75 +225,75 @@ function TerminalBrowser({ lang, terminal, state, onExit, readOnly = false, sync
 
       {/* STATUS BAR */}
       <div className="status-bar t-dim">
-        <span>{statusBarText(lang)}</span>
+        <span>{statusBarText()}</span>
         <span>{terminal.hostname} · {operator}</span>
       </div>
     </div>
   );
 }
 
-function ClockLine({ lang }) {
+function ClockLine() {
   const [n, setN] = useState(new Date());
   useEffect(() => {
     const id = setInterval(() => setN(new Date()), 1000);
     return () => clearInterval(id);
   }, []);
-  return <div>{formatRetroDate(n, lang)}</div>;
+  return <div>{formatRetroDate(n)}</div>;
 }
 
-function FolderList({ lang, folders, activeIdx, onPick }) {
-  if (!folders.length) return <div className="mono t-dim">{lang === 'ru' ? '[ПАПОК НЕТ]' : '[NO FOLDERS]'}</div>;
+function FolderList({ folders, activeIdx, onPick }) {
+  if (!folders.length) return <div className="mono t-dim">{'[ПАПОК НЕТ]'}</div>;
   return (
     <div className="mono">
-      <div className="t-bright" style={{marginBottom: 6}}>{lang === 'ru' ? 'ПАПКИ //' : 'FOLDERS //'}</div>
+      <div className="t-bright" style={{marginBottom: 6}}>{'ПАПКИ //'}</div>
       {folders.map((f, i) => (
         <div key={f.id || i} className={'menu-row' + (i === activeIdx ? ' active' : '')} onClick={() => onPick(i)}>
           <span className="caret-prefix">{i === activeIdx ? '▶' : ' '}</span>
           <span>[{String(i + 1).padStart(2, '0')}]</span>
           <span>&lt;DIR&gt;</span>
-          <span>{lang === 'ru' ? (f.nameRu || f.name) : f.name}</span>
-          <span style={{marginLeft: 'auto', opacity: 0.65}}>{(f.files || []).length} {lang === 'ru' ? 'файл(ов)' : 'files'}</span>
+          <span>{f.name}</span>
+          <span style={{marginLeft: 'auto', opacity: 0.65}}>{(f.files || []).length} {'файл(ов)'}</span>
         </div>
       ))}
     </div>
   );
 }
 
-function FileList({ lang, folder, activeIdx, onPick, onBack }) {
+function FileList({ folder, activeIdx, onPick, onBack }) {
   const files = folder.files || [];
   return (
     <div className="mono">
       <div style={{marginBottom: 6}}>
         <span className="t-dim">&lt; </span>
-        <span className="t-bright">{lang === 'ru' ? (folder.nameRu || folder.name) : folder.name}</span>
-        <span className="t-dim">  //  {files.length} {lang === 'ru' ? 'файл(ов)' : 'files'}</span>
+        <span className="t-bright">{folder.name}</span>
+        <span className="t-dim">  //  {files.length} {'файл(ов)'}</span>
       </div>
       <div className="menu-row" onClick={onBack} style={{opacity: 0.7}}>
-        <span>  </span><span>..</span><span>&lt;{lang === 'ru' ? 'НАЗАД' : 'BACK'}&gt;</span>
+        <span>  </span><span>..</span><span>&lt;{'НАЗАД'}&gt;</span>
       </div>
-      {!files.length && <div className="t-dim">{lang === 'ru' ? '[ПАПКА ПУСТА]' : '[EMPTY]'}</div>}
+      {!files.length && <div className="t-dim">{'[ПАПКА ПУСТА]'}</div>}
       {files.map((f, i) => (
         <div key={f.id || i} className={'menu-row' + (i === activeIdx ? ' active' : '')} onClick={() => onPick(i)}>
           <span className="caret-prefix">{i === activeIdx ? '▶' : ' '}</span>
           <span>[{String(i + 1).padStart(2, '0')}]</span>
           <span className={f.corrupted ? 't-red' : ''}>
-            {f.corrupted ? (lang === 'ru' ? '[!]' : '[!]') : '   '}
+            {f.corrupted ? '[!]' : '   '}
           </span>
-          <span>{lang === 'ru' ? (f.nameRu || f.name) : f.name}</span>
+          <span>{f.name}</span>
         </div>
       ))}
     </div>
   );
 }
 
-function FileViewer({ lang, file, text, done, viewRef }) {
-  const name = lang === 'ru' ? (file.nameRu || file.name) : file.name;
+function FileViewer({ file, text, done, viewRef }) {
+  const name = file.name;
   return (
     <div className="col grow" style={{minHeight: 0}}>
       <div className="mono" style={{marginBottom: 6}}>
         <span className="t-dim">&lt; </span>
         <span className={file.corrupted ? 't-red' : 't-bright'}>
-          {file.corrupted ? (lang === 'ru' ? '[ПОВРЕЖДЁН] ' : '[CORRUPTED] ') : ''}
+          {file.corrupted ? '[ПОВРЕЖДЁН] ' : ''}
           {name}
         </span>
       </div>

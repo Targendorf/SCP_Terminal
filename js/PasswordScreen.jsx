@@ -1,6 +1,6 @@
 // Экран ввода пароля
 function PasswordScreen({
-  lang, state, onLogin, onMasterUnlock, lockInfo, setLockInfo, canInput = true,
+  state, onLogin, onMasterUnlock, lockInfo, setLockInfo, canInput = true,
   onPwChange, syncPwInput,
   hackHostCallbacks, hackViewState,
 }) {
@@ -42,12 +42,11 @@ function PasswordScreen({
     const hackRx = /^(?:\/hack|\/взлом)\s+(.+)$/i;
     const hackBare = /^(?:\/hack|\/взлом)$/i;
     if (hackBare.test(entered)) {
-      // /hack без имени — подсказка
       setChecking(false);
       setPw('');
       if (onPwChange) onPwChange('');
       SCPAudio.denied();
-      setMsg({ kind: 'err', text: lang === 'ru' ? 'УКАЖИТЕ ИМЯ ЦЕЛИ: /hack [имя терминала]' : 'SPECIFY TARGET: /hack [terminal name]' });
+      setMsg({ kind: 'err', text: 'УКАЖИТЕ ИМЯ ЦЕЛИ: /hack [имя терминала]' });
       return;
     }
     const hackMatch = hackRx.exec(entered);
@@ -57,7 +56,7 @@ function PasswordScreen({
       if (onPwChange) onPwChange('');
       if (!state.virusDiskReady) {
         SCPAudio.denied();
-        setMsg({ kind: 'err', text: lang === 'ru' ? 'ВИРУС-ДИСКЕТА НЕ ОБНАРУЖЕНА' : 'VIRUS DISK NOT FOUND' });
+        setMsg({ kind: 'err', text: 'ВИРУС-ДИСКЕТА НЕ ОБНАРУЖЕНА' });
         return;
       }
       const typedName = hackMatch[1].trim().toLowerCase();
@@ -66,18 +65,17 @@ function PasswordScreen({
         : null;
       if (!hackTarget) {
         SCPAudio.denied();
-        setMsg({ kind: 'err', text: lang === 'ru' ? 'ЦЕЛЬ ДЛЯ ВЗЛОМА НЕ НАСТРОЕНА' : 'NO HACK TARGET CONFIGURED' });
+        setMsg({ kind: 'err', text: 'ЦЕЛЬ ДЛЯ ВЗЛОМА НЕ НАСТРОЕНА' });
         return;
       }
-      const nameRu = (hackTarget.nameRu || hackTarget.name || '').toLowerCase();
-      const nameEn = (hackTarget.name || '').toLowerCase();
-      if (typedName !== nameRu && typedName !== nameEn) {
+      const targetName = (hackTarget.name || '').toLowerCase();
+      if (typedName !== targetName) {
         SCPAudio.denied();
-        setMsg({ kind: 'err', text: lang === 'ru' ? 'ЦЕЛЬ НЕ НАЙДЕНА' : 'TARGET NOT FOUND' });
+        setMsg({ kind: 'err', text: 'ЦЕЛЬ НЕ НАЙДЕНА' });
         return;
       }
       SCPAudio.granted();
-      setMsg({ kind: 'master', text: lang === 'ru' ? 'ЗАПУСК ВИРУС-ДИСКЕТЫ...' : 'LAUNCHING VIRUS DISK...' });
+      setMsg({ kind: 'master', text: 'ЗАПУСК ВИРУС-ДИСКЕТЫ...' });
       setTimeout(() => {
         setMsg(null);
         setHackOpen(true);
@@ -92,7 +90,7 @@ function PasswordScreen({
     if (isMaster) {
       SCPStorage.appendLog({ type: 'master-unlock', password: '[MASTER]', ok: true });
       SCPAudio.granted();
-      setMsg({ kind: 'master', text: lang === 'ru' ? 'АДМИНИСТРАТИВНЫЙ ДОСТУП' : 'ADMINISTRATOR ACCESS' });
+      setMsg({ kind: 'master', text: 'АДМИНИСТРАТИВНЫЙ ДОСТУП' });
       setTimeout(() => onMasterUnlock(), 900);
       return;
     }
@@ -100,7 +98,7 @@ function PasswordScreen({
     if (terminal) {
       SCPStorage.appendLog({ type: 'login', terminal: terminal.id, password: entered, ok: true });
       SCPAudio.granted();
-      setMsg({ kind: 'ok', text: (lang === 'ru' ? 'ДОСТУП РАЗРЕШЁН // ' : 'ACCESS GRANTED // ') + (lang === 'ru' ? terminal.nameRu || terminal.name : terminal.name) });
+      setMsg({ kind: 'ok', text: 'ДОСТУП РАЗРЕШЁН // ' + terminal.name });
       setTimeout(() => onLogin(terminal), 900);
       return;
     }
@@ -110,10 +108,10 @@ function PasswordScreen({
     const newFails = (lockInfo?.fails || 0) + 1;
     if (newFails >= 3) {
       setLockInfo({ fails: newFails, until: Date.now() + 30000 });
-      setMsg({ kind: 'err', text: lang === 'ru' ? 'ТЕРМИНАЛ ЗАБЛОКИРОВАН НА 30 СЕК' : 'TERMINAL LOCKED FOR 30 SEC' });
+      setMsg({ kind: 'err', text: 'ТЕРМИНАЛ ЗАБЛОКИРОВАН НА 30 СЕК' });
     } else {
       setLockInfo({ fails: newFails, until: 0 });
-      setMsg({ kind: 'err', text: lang === 'ru' ? 'НЕВЕРНЫЙ ПАРОЛЬ. ПОПЫТКА ' + newFails + '/3' : 'INVALID PASSWORD. ATTEMPT ' + newFails + '/3' });
+      setMsg({ kind: 'err', text: 'НЕВЕРНЫЙ ПАРОЛЬ. ПОПЫТКА ' + newFails + '/3' });
     }
     setPw('');
     if (onPwChange) onPwChange('');
@@ -128,7 +126,6 @@ function PasswordScreen({
     <>
     {foundOpen && (
       <FoundPasswordsModal
-        lang={lang}
         terms={revealedTerms}
         onClose={() => setFoundOpen(false)}
         onPick={(pw) => { setFoundOpen(false); setPw(pw); setTimeout(() => inputRef.current && inputRef.current.focus(), 50); }}
@@ -136,7 +133,6 @@ function PasswordScreen({
     )}
     {hackOpen && (
       <HackGame
-        lang={lang}
         state={state}
         onCancel={() => {
           setHackOpen(false);
@@ -157,7 +153,6 @@ function PasswordScreen({
     )}
     {hackViewState && hackViewState.open && (
       <HackGame
-        lang={lang}
         state={state}
         readOnly={true}
         viewState={hackViewState}
@@ -176,31 +171,27 @@ function PasswordScreen({
         </div>
         <div className="mono t-dim" style={{textAlign: 'right'}}>
           <div>NODE: UNK</div>
-          <div>{formatRetroDate(new Date(), lang)}</div>
+          <div>{formatRetroDate(new Date())}</div>
         </div>
       </div>
 
       <pre className="hr-ascii">{'='.repeat(120).slice(0, 200)}</pre>
 
       <div className="mono">
-        <pre>{asciiFrame(lang === 'ru' ? '  ТРЕБУЕТСЯ АУТЕНТИФИКАЦИЯ  ' : '  AUTHENTICATION REQUIRED  ', 46)}</pre>
+        <pre>{asciiFrame('  ТРЕБУЕТСЯ АУТЕНТИФИКАЦИЯ  ', 46)}</pre>
       </div>
 
       <div className="mono" style={{marginTop: '0.5em'}}>
         <div>
-          {lang === 'ru'
-            ? '> Введите пароль доступа для подключения к терминалу.'
-            : '> Enter access password to connect to terminal.'}
+          {'> Введите пароль доступа для подключения к терминалу.'}
         </div>
         <div className="t-dim">
-          {lang === 'ru'
-            ? '> Для административного режима используйте мастер-пароль.'
-            : '> For administrative mode, use master password.'}
+          {'> Для административного режима используйте мастер-пароль.'}
         </div>
       </div>
 
       <form onSubmit={submit} className="input-line" style={{marginTop: '1em'}}>
-        <span className="t-bright">{lang === 'ru' ? 'ПАРОЛЬ:' : 'PASSWORD:'}</span>
+        <span className="t-bright">ПАРОЛЬ:</span>
         <input
           ref={inputRef}
           type="password"
@@ -213,7 +204,7 @@ function PasswordScreen({
             if (e.target.value) SCPAudio.key();
             if (onPwChange) onPwChange(e.target.value);
           }}
-          placeholder={!canInput ? (lang === 'ru' ? 'РЕЖИМ ЗРИТЕЛЯ' : 'VIEWER MODE') : (isLocked ? (lang === 'ru' ? 'ЗАБЛОКИРОВАНО' : 'LOCKED') : (lang === 'ru' ? 'введите пароль' : 'enter password'))}
+          placeholder={!canInput ? 'РЕЖИМ ЗРИТЕЛЯ' : (isLocked ? 'ЗАБЛОКИРОВАНО' : 'введите пароль')}
         />
         {!checking && canInput && <span className="caret"></span>}
       </form>
@@ -224,7 +215,7 @@ function PasswordScreen({
           {syncPwInput.length > 0
             ? <span className="t-amber">{'●'.repeat(syncPwInput.length)}</span>
             : <span className="t-dim" style={{opacity: 0.45}}>
-                {lang === 'ru' ? '[ожидание ввода]' : '[waiting for input]'}
+                {'[ожидание ввода]'}
               </span>
           }
         </div>
@@ -233,13 +224,13 @@ function PasswordScreen({
       {revealedTerms.length > 0 && (
         <button className="found-pw-btn" onClick={() => setFoundOpen(true)}>
           {'[' + revealedTerms.length + ']  '}
-          {lang === 'ru' ? 'НАЙДЕННЫЕ ПАРОЛИ' : 'FOUND PASSWORDS'}
+          {'НАЙДЕННЫЕ ПАРОЛИ'}
         </button>
       )}
 
       {checking && (
         <div className="mono t-dim" style={{marginTop: '0.8em'}}>
-          <LoadingDots label={lang === 'ru' ? 'ПРОВЕРКА УЧЁТНЫХ ДАННЫХ' : 'VERIFYING CREDENTIALS'} />
+          <LoadingDots label={'ПРОВЕРКА УЧЁТНЫХ ДАННЫХ'} />
         </div>
       )}
 
@@ -251,59 +242,56 @@ function PasswordScreen({
 
       {isLocked && (
         <div className="mono t-red">
-          {lang === 'ru' ? 'Разблокировка через ' : 'Unlock in '}
-          {lockSecLeft}{lang === 'ru' ? ' сек' : ' sec'}
+          {'Разблокировка через '}
+          {lockSecLeft}{' сек'}
         </div>
       )}
 
       <div style={{flex: 1}}></div>
 
       <div className="status-bar t-dim">
-        <span>{lang === 'ru' ? 'SECURE · CONTAIN · PROTECT' : 'SECURE · CONTAIN · PROTECT'}</span>
+        <span>{'SECURE · CONTAIN · PROTECT'}</span>
         {state.virusDiskReady && state.hackTargetTerminalId && (() => {
           const tgt = (state.terminals || []).find(t => t.id === state.hackTargetTerminalId);
-          const tname = tgt ? (lang === 'ru' ? (tgt.nameRu || tgt.name) : tgt.name) : '?';
+          const tname = tgt ? tgt.name : '?';
           return (
             <span className="t-amber">
-              {lang === 'ru' ? '[/hack ' + tname + ' — ВИРУС-ДИСКЕТА ДОСТУПНА]' : '[/hack ' + tname + ' — VIRUS DISK READY]'}
+              {'[/hack ' + tname + ' — ВИРУС-ДИСКЕТА ДОСТУПНА]'}
             </span>
           );
         })()}
-        <span>{lang === 'ru' ? 'НЕСАНКЦИОНИРОВАННЫЙ ДОСТУП ПРЕСЛЕДУЕТСЯ' : 'UNAUTHORIZED ACCESS IS A FEDERAL OFFENSE'}</span>
+        <span>{'НЕСАНКЦИОНИРОВАННЫЙ ДОСТУП ПРЕСЛЕДУЕТСЯ'}</span>
       </div>
     </div>
     </>
   );
 }
 
-function FoundPasswordsModal({ lang, terms, onClose, onPick }) {
-  const t = lang === 'ru';
+function FoundPasswordsModal({ terms, onClose, onPick }) {
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal found-pw-modal" onClick={e => e.stopPropagation()}>
         <h3 className="t-bright" style={{margin: 0}}>
-          {t ? '// НАЙДЕННЫЕ ПАРОЛИ //' : '// FOUND PASSWORDS //'}
+          {'// НАЙДЕННЫЕ ПАРОЛИ //'}
         </h3>
         <div className="mono t-dim" style={{fontSize: 13, marginBottom: 6}}>
-          {t
-            ? '> Пароли, собранные в ходе настольной игры. Кликните по паролю — он подставится в поле ввода.'
-            : '> Passwords collected during the tabletop game. Click a password to fill the input.'}
+          {'> Пароли, собранные в ходе настольной игры. Кликните по паролю — он подставится в поле ввода.'}
         </div>
         {terms.length === 0 && (
-          <div className="mono t-dim">{t ? '[ПУСТО]' : '[EMPTY]'}</div>
+          <div className="mono t-dim">{'[ПУСТО]'}</div>
         )}
         <div className="found-pw-list">
           {terms.map(term => (
             <div key={term.id} className="found-pw-item">
               <div className="found-pw-head">
-                <span className="t-bright">{lang === 'ru' ? (term.nameRu || term.name) : term.name}</span>
+                <span className="t-bright">{term.name}</span>
                 <span className="t-dim"> · {term.hostname}</span>
                 <span className={'pill lvl-' + (term.level || 1)} style={{marginLeft: 8}}>L{term.level || 1}</span>
               </div>
               <button
                 className="found-pw-code"
                 onClick={() => onPick(term.password)}
-                title={t ? 'Подставить в поле ввода' : 'Use this password'}
+                title={'Подставить в поле ввода'}
               >
                 {term.password}
               </button>
@@ -314,7 +302,7 @@ function FoundPasswordsModal({ lang, terms, onClose, onPick }) {
           ))}
         </div>
         <div className="modal-actions">
-          <button className="btn" onClick={onClose}>{t ? 'ЗАКРЫТЬ' : 'CLOSE'}</button>
+          <button className="btn" onClick={onClose}>{'ЗАКРЫТЬ'}</button>
         </div>
       </div>
     </div>
