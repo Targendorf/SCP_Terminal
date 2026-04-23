@@ -49,9 +49,9 @@ function App() {
   const [hackOpen, setHackOpen] = _useState(false);
   const [hackDone, setHackDone] = _useState(false);
   const [hackReward, setHackReward] = _useState(null);
-  const [hackPuzzleType, setHackPuzzleType] = _useState('wordsearch');
+  const [hackPuzzleType, setHackPuzzleType] = _useState(null);
   const [hackSnapshot, setHackSnapshot] = _useState(null);
-  const [pwInput, setPwInput] = _useState(null);
+  const [pwInput, setPwInput] = _useState('');
 
   const setTweaks = (patch) => {
     setTweaksRaw(t => {
@@ -185,23 +185,26 @@ function App() {
   }, []);
 
   // Hack game callbacks — only called by host, update state to broadcast to viewers
-  const hackHostCallbacks = _useCallback(() => ({
-    onOpen: () => setHackOpen(true),
-    onClose: () => {
-      setHackOpen(false);
+  const hackHostCallbacks = (isHost && !isViewer) ? {
+    onOpen: () => {
+      setHackOpen(true);
       setHackDone(false);
       setHackReward(null);
       setHackSnapshot(null);
+      setHackPuzzleType(null);
+    },
+    onClose: () => {
+      setHackOpen(false);
     },
     onDone: (reward) => {
       setHackDone(true);
       setHackReward(reward);
     },
     onSnapshot: (snap) => {
-      if (snap.puzzleType) setHackPuzzleType(snap.puzzleType);
-      if (snap.puzzleState) setHackSnapshot(snap.puzzleState);
+      if (snap && snap.puzzleType) setHackPuzzleType(snap.puzzleType);
+      setHackSnapshot(snap ? snap.puzzleState : null);
     },
-  }), []);
+  } : null;
 
   // Hack view state — passed to viewers to display host's hack game
   const hackViewState = {
@@ -241,10 +244,10 @@ function App() {
               lockInfo={lockInfo}
               setLockInfo={setLockInfo}
               canInput={isHost && !isViewer}
-              onPwChange={isHost ? (pw) => setPwInput(pw) : null}
+              onPwChange={isHost && !isViewer ? setPwInput : null}
               syncPwInput={isViewer ? pwInput : null}
-              hackHostCallbacks={isHost ? hackHostCallbacks() : null}
-              hackViewState={isViewer ? hackViewState : null}
+              hackHostCallbacks={hackHostCallbacks}
+              hackViewState={hackViewState}
             />
           )}
 
