@@ -96,86 +96,6 @@ function SequencePuzzle({ lang, onWin, onStateChange, readOnlySnapshot }) {
 }
 
 // =====================================================================
-// 2. WIRE TRACE — провести точку по ASCII-лабиринту
-// =====================================================================
-function WirePuzzle({ lang, onWin, onStateChange, readOnlySnapshot }) {
-  const t = lang === 'ru';
-  const W = 17, H = 11; // нечётные
-  const maze = React.useMemo(() => carveMaze(W, H), []);
-  const [pos, setPos] = React.useState([1, 1]);
-  const goal = [W - 2, H - 2];
-  const wonRef = React.useRef(false);
-
-  React.useEffect(() => {
-    if (onStateChange) onStateChange({ pos });
-  }, [pos]);
-
-  React.useEffect(() => {
-    const h = (e) => {
-      if (wonRef.current || readOnlySnapshot) return;
-      let dx = 0, dy = 0;
-      if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') dx = -1;
-      else if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') dx = 1;
-      else if (e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W') dy = -1;
-      else if (e.key === 'ArrowDown' || e.key === 's' || e.key === 'S') dy = 1;
-      else return;
-      e.preventDefault();
-      setPos(p => {
-        const nx = p[0] + dx, ny = p[1] + dy;
-        if (ny < 0 || ny >= H || nx < 0 || nx >= W) return p;
-        if (maze[ny][nx] === 1) return p;
-        SCPAudio.key();
-        if (nx === goal[0] && ny === goal[1] && !wonRef.current) { wonRef.current = true; onWin(); }
-        return [nx, ny];
-      });
-    };
-    window.addEventListener('keydown', h);
-    return () => window.removeEventListener('keydown', h);
-  }, [maze, readOnlySnapshot]);
-
-  const displayPos = readOnlySnapshot ? (readOnlySnapshot.pos || [1, 1]) : pos;
-
-  return (
-    <div className="wire-box">
-      <div className="mono t-dim" style={{fontSize: 13}}>
-        {t ? '> Проведите ◉ к цели ◎. Клавиши ← ↑ → ↓ или WASD.' : '> Guide ◉ to ◎. Use ← ↑ → ↓ or WASD.'}
-      </div>
-      <pre className="wire-maze">
-{maze.map((row, y) => row.map((c, x) => {
-  const isP = x === displayPos[0] && y === displayPos[1];
-  const isG = x === goal[0] && y === goal[1];
-  return isP ? '◉' : isG ? '◎' : (c ? '█' : '·');
-}).join('')).join('\n')}
-      </pre>
-    </div>
-  );
-}
-
-function carveMaze(W, H) {
-  const g = Array.from({length: H}, () => Array.from({length: W}, () => 1));
-  const stack = [[1, 1]];
-  g[1][1] = 0;
-  while (stack.length) {
-    const [x, y] = stack[stack.length - 1];
-    const dirs = [[0, -2], [0, 2], [-2, 0], [2, 0]].sort(() => Math.random() - 0.5);
-    let carved = false;
-    for (const [dx, dy] of dirs) {
-      const nx = x + dx, ny = y + dy;
-      if (nx > 0 && nx < W - 1 && ny > 0 && ny < H - 1 && g[ny][nx] === 1) {
-        g[y + dy / 2][x + dx / 2] = 0;
-        g[ny][nx] = 0;
-        stack.push([nx, ny]);
-        carved = true;
-        break;
-      }
-    }
-    if (!carved) stack.pop();
-  }
-  g[H - 2][W - 2] = 0;
-  return g;
-}
-
-// =====================================================================
 // 3. CIPHER DECODE — шифр Цезаря. Игрок двигает сдвиг до читаемости.
 // =====================================================================
 function CipherPuzzle({ lang, onWin, onStateChange, readOnlySnapshot }) {
@@ -431,77 +351,6 @@ function pipeChar(m) {
 }
 
 // =====================================================================
-// 6. FREQUENCY LOCK — поймай сигнал в узкой полосе
-// =====================================================================
-function FrequencyPuzzle({ lang, onWin, onStateChange, readOnlySnapshot }) {
-  const t = lang === 'ru';
-  const targetRef = React.useRef(null);
-  if (targetRef.current === null) targetRef.current = 15 + Math.random() * 70;
-  const target = targetRef.current;
-  const tolerance = 1.8;
-  const [val, setVal] = React.useState(50);
-  const [timeLeft, setTimeLeft] = React.useState(20);
-  const [msg, setMsg] = React.useState(null);
-  const wonRef = React.useRef(false);
-
-  React.useEffect(() => {
-    if (wonRef.current) return;
-    const id = setInterval(() => setTimeLeft(x => Math.max(0, +(x - 0.1).toFixed(1))), 100);
-    return () => clearInterval(id);
-  }, []);
-
-  React.useEffect(() => {
-    if (onStateChange) onStateChange({ val, timeLeft });
-  }, [val, timeLeft]);
-
-  const displayVal      = readOnlySnapshot ? (readOnlySnapshot.val      ?? val)      : val;
-  const displayTimeLeft = readOnlySnapshot ? (readOnlySnapshot.timeLeft ?? timeLeft) : timeLeft;
-  const dist    = Math.abs(displayVal - target);
-  const strength = Math.max(0, Math.min(1, 1 - dist / 35));
-  const blocks  = Math.round(strength * 24);
-
-  const tryLock = () => {
-    if (displayTimeLeft <= 0) return;
-    if (dist <= tolerance) {
-      if (!wonRef.current) { wonRef.current = true; SCPAudio.granted(); onWin(); }
-    } else {
-      SCPAudio.error();
-      setMsg(t ? 'ПОМЕХИ. ПРОДОЛЖАЙТЕ НАСТРОЙКУ.' : 'NOISE. KEEP TUNING.');
-      setTimeout(() => setMsg(null), 1000);
-    }
-  };
-
-  return (
-    <div className="freq-box">
-      <div className="mono t-dim" style={{fontSize: 13}}>
-        {t ? '> Найдите несущую частоту. Лочьте, когда сигнал чистый.' : '> Find the carrier frequency. Lock when the signal is clean.'}
-      </div>
-      <div className="freq-stat">
-        <div>{t ? 'ЧАСТОТА' : 'FREQ'}: <span className="t-bright">{displayVal.toFixed(1)}</span> MHz</div>
-        <div>{t ? 'ОСТАЛОСЬ' : 'TIME'}: <span className={displayTimeLeft < 5 ? 't-red' : 't-bright'}>{displayTimeLeft.toFixed(1)}s</span></div>
-      </div>
-      <div className="freq-meter">
-        <div className="freq-bar" style={{width: (strength * 100) + '%'}}></div>
-      </div>
-      <div className="mono t-amber" style={{letterSpacing: '0.1em', fontSize: 15, textAlign: 'center'}}>
-        [{'█'.repeat(blocks)}{'·'.repeat(24 - blocks)}]
-      </div>
-      <input type="range" min="0" max="100" step="0.1" value={displayVal}
-        className="freq-slider"
-        onChange={readOnlySnapshot ? undefined : e => setVal(+e.target.value)}
-        disabled={timeLeft <= 0 || !!readOnlySnapshot} />
-      {msg && <div className="mono t-red" style={{textAlign: 'center'}}>{'>> ' + msg + ' <<'}</div>}
-      <button className="btn"
-        onClick={readOnlySnapshot ? undefined : tryLock}
-        disabled={displayTimeLeft <= 0 || !!readOnlySnapshot}
-        style={{alignSelf: 'center', minWidth: 140}}>
-        {t ? 'ЗАХВАТ' : 'LOCK'}
-      </button>
-    </div>
-  );
-}
-
-// =====================================================================
 // 7. SPEED TYPER — ввести код за 15 секунд
 // =====================================================================
 function TyperPuzzle({ lang, onWin, onStateChange, readOnlySnapshot }) {
@@ -584,9 +433,7 @@ function randHex(n) {
 }
 
 window.SequencePuzzle = SequencePuzzle;
-window.WirePuzzle = WirePuzzle;
 window.CipherPuzzle = CipherPuzzle;
 window.MemoryPuzzle = MemoryPuzzle;
 window.PipePuzzle = PipePuzzle;
-window.FrequencyPuzzle = FrequencyPuzzle;
 window.TyperPuzzle = TyperPuzzle;

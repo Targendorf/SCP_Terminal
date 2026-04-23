@@ -334,11 +334,9 @@ function AdminPanel({ lang, state, setState, onExit, onPreview }) {
                   <option value="random">{t ? '🎲 случайная' : '🎲 random'}</option>
                   <option value="wordsearch">{t ? '🔤 поиск слов (15×15)' : '🔤 word search (15×15)'}</option>
                   <option value="sequence">{t ? '🟦 повтор последовательности' : '🟦 sequence lock'}</option>
-                  <option value="wire">{t ? '🌀 трассировка лабиринта' : '🌀 wire trace'}</option>
                   <option value="cipher">{t ? '🔐 шифр Цезаря' : '🔐 caesar cipher'}</option>
                   <option value="memory">{t ? '🧠 запомни сетку' : '🧠 memory grid'}</option>
                   <option value="pipe">{t ? '🚰 соедини трубы' : '🚰 pipe connect'}</option>
-                  <option value="freq">{t ? '📡 настройка частоты' : '📡 frequency lock'}</option>
                   <option value="typer">{t ? '⌨️ скорость ввода' : '⌨️ speed typer'}</option>
                 </select>
               </div>

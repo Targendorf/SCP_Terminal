@@ -1,7 +1,7 @@
 // HackGame — диспетчер головоломок. Каждая мини-игра работает внутри общей обёртки.
 // На старте выбирается тип головоломки и конкретный терминал-цель (настраивается в админке).
 
-const HACK_PUZZLE_TYPES = ['wordsearch', 'sequence', 'wire', 'cipher', 'memory', 'pipe', 'freq', 'typer'];
+const HACK_PUZZLE_TYPES = ['wordsearch', 'sequence', 'cipher', 'memory', 'pipe', 'typer'];
 
 function getHackReward(state, lang) {
   const list = state.terminals || [];
@@ -24,11 +24,9 @@ function pickHackPuzzle(adminChoice) {
 const PUZZLE_TITLES = {
   wordsearch: { ru: 'ПОИСК СЛОВ', en: 'WORD SEARCH' },
   sequence:   { ru: 'ЗАМОК ПОСЛЕДОВАТЕЛЬНОСТИ', en: 'SEQUENCE LOCK' },
-  wire:       { ru: 'ТРАССИРОВКА СИГНАЛА', en: 'WIRE TRACE' },
   cipher:     { ru: 'ДЕШИФРАТОР ЦЕЗАРЯ', en: 'CAESAR DECODE' },
   memory:     { ru: 'ПАМЯТЬ СЕТКИ', en: 'MEMORY GRID' },
   pipe:       { ru: 'СХЕМА ПИТАНИЯ', en: 'PIPE CIRCUIT' },
-  freq:       { ru: 'НАСТРОЙКА ЧАСТОТЫ', en: 'FREQUENCY LOCK' },
   typer:      { ru: 'ВВОД КОДА', en: 'SPEED TYPER' },
 };
 
@@ -48,11 +46,9 @@ function HackGame({ lang, state, onSuccess, onCancel, onSnapshot, onDone, readOn
   const PUZZLES = {
     wordsearch: WordSearchPuzzle,
     sequence:   SequencePuzzle,
-    wire:       WirePuzzle,
     cipher:     CipherPuzzle,
     memory:     MemoryPuzzle,
     pipe:       PipePuzzle,
-    freq:       FrequencyPuzzle,
     typer:      TyperPuzzle,
   };
   const Puzzle = PUZZLES[activePuzzleType] || WordSearchPuzzle;
