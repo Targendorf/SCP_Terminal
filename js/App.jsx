@@ -116,12 +116,12 @@ function App() {
           setCurrentTerm(null);
         }
         if (shared.nav) setRemoteNav(shared.nav);
-        if (typeof shared.hackOpen !== 'undefined') setHackOpen(shared.hackOpen);
-        if (typeof shared.hackDone !== 'undefined') setHackDone(shared.hackDone);
-        if (typeof shared.hackReward !== 'undefined') setHackReward(shared.hackReward);
-        if (typeof shared.hackPuzzleType !== 'undefined') setHackPuzzleType(shared.hackPuzzleType);
-        if (typeof shared.hackSnapshot !== 'undefined') setHackSnapshot(shared.hackSnapshot);
-        if (typeof shared.pwInput !== 'undefined') setPwInput(shared.pwInput);
+        if (shared.pwInput        !== undefined) setPwInput(shared.pwInput);
+        if (shared.hackOpen       !== undefined) setHackOpen(shared.hackOpen);
+        if (shared.hackDone       !== undefined) setHackDone(shared.hackDone);
+        if (shared.hackReward     !== undefined) setHackReward(shared.hackReward);
+        if (shared.hackPuzzleType !== undefined) setHackPuzzleType(shared.hackPuzzleType);
+        if (shared.hackSnapshot   !== undefined) setHackSnapshot(shared.hackSnapshot);
       },
     });
   }, []);
@@ -207,13 +207,13 @@ function App() {
   } : null;
 
   // Hack view state — passed to viewers to display host's hack game
-  const hackViewState = {
+  const hackViewState = isViewer ? {
     open: hackOpen,
     done: hackDone,
     reward: hackReward,
     puzzleType: hackPuzzleType,
     snapshot: hackSnapshot,
-  };
+  } : null;
 
   return (
     <>
