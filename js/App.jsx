@@ -24,12 +24,14 @@ function loadTweaks() {
   return { ...DEFAULT_TWEAKS };
 }
 
-// Админ-маршрут: ?admin=1 — минует мультиплеер и ведёт сразу на ввод мастер-пароля.
+// Админ-маршрут: ?admin=1 — минует мультиплеер и ведёт на ввод мастер-пароля.
+// ?admin=1&open=1 — открывает админку без ввода пароля (для мастера игры).
 const IS_ADMIN_ROUTE = new URLSearchParams(location.search).get('admin') === '1';
+const IS_ADMIN_OPEN  = IS_ADMIN_ROUTE && new URLSearchParams(location.search).get('open') === '1';
 
 function App() {
   // stage: boot | login | terminal | admin | adminLogin
-  const [stage, setStage] = _useState(IS_ADMIN_ROUTE ? 'adminLogin' : 'boot');
+  const [stage, setStage] = _useState(IS_ADMIN_OPEN ? 'admin' : IS_ADMIN_ROUTE ? 'adminLogin' : 'boot');
   const [state, setState] = useStore();
   const [currentTerm, setCurrentTerm] = _useState(null);
   const [tweaks, setTweaksRaw] = _useState(loadTweaks);
@@ -100,6 +102,22 @@ function App() {
 
   const stateRef = _useRef(state);
   _useEffect(() => { stateRef.current = state; }, [state]);
+
+  // === BROADCAST CHANNEL — принудительная перезагрузка от админки ===
+  _useEffect(() => {
+    if (IS_ADMIN_ROUTE) return;
+    let bc;
+    try {
+      bc = new BroadcastChannel('scp_admin');
+      bc.onmessage = (e) => {
+        if (e.data && e.data.type === 'force_reload') {
+          // sessionStorage уже хранит роль (host/viewer) — при перезагрузке восстановится
+          window.location.reload();
+        }
+      };
+    } catch (e) {}
+    return () => { try { if (bc) bc.close(); } catch (e) {} };
+  }, []);
 
   // === SESSION INIT ===
   _useEffect(() => {

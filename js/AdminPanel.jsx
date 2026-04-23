@@ -171,8 +171,14 @@ function AdminPanel({ state, setState, onExit, onPreview }) {
 
   const doRestart = () => {
     SCPStorage.save(state);
+    // Уведомляем все игровые вкладки — они перезагрузятся, сохранив свои роли
+    try {
+      const bc = new BroadcastChannel('scp_admin');
+      bc.postMessage({ type: 'force_reload' });
+      bc.close();
+    } catch (e) {}
     SCPAudio.granted();
-    alert('✓ Данные синхронизированы и отправлены игровому экрану');
+    alert('✓ Данные сохранены. Игровые вкладки обновятся автоматически.');
   };
 
   return (

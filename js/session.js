@@ -157,6 +157,7 @@
   }
 
   function becomeHost() {
+    sessionStorage.setItem('scp_preferred_role', 'host');
     state.isHost = true;
     state.ready = true;
     state.selfId = HOST_ID;
@@ -200,6 +201,7 @@
   }
 
   function becomeViewer() {
+    sessionStorage.setItem('scp_preferred_role', 'viewer');
     state.isHost = false;
     state.selfId = state.peer.id;
     state.peers.set(state.selfId, { name: state.selfName, color: state.selfColor });
@@ -244,6 +246,18 @@
     if (!window.Peer) {
       console.warn('SCPSession: PeerJS не загружен — session отключена.');
       emit('onStatus', 'offline');
+      return;
+    }
+    // Если вкладка была зрителем — не конкурируем за HOST_ID, сразу идём как зритель
+    if (sessionStorage.getItem('scp_preferred_role') === 'viewer') {
+      emit('onStatus', 'connecting');
+      const viewer = new Peer({ debug: 0 });
+      state.peer = viewer;
+      viewer.on('open', () => becomeViewer());
+      viewer.on('error', (e2) => {
+        console.warn('SCPSession viewer error', e2);
+        emit('onStatus', 'offline');
+      });
       return;
     }
     // Пытаемся взять host-id

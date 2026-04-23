@@ -256,7 +256,7 @@ function PasswordScreen({
           const tname = tgt ? tgt.name : '?';
           return (
             <span className="t-amber">
-              {'[' + tname + ' — ВИРУС-ДИСКЕТА АКТИВНА]'}
+              {'[ВИРУС-ДИСКЕТА // введите: /hack ' + tname + ']'}
             </span>
           );
         })()}
