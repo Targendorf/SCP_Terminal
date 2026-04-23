@@ -1,5 +1,5 @@
 // Корневое приложение
-const { useState: _useState, useEffect: _useEffect, useCallback: _useCallback, useRef: _useRef } = React;
+const { useState: _useState, useEffect: _useEffect, useCallback: _useCallback, useRef: _useRef, useMemo: _useMemo } = React;
 
 const DEFAULT_TWEAKS = /*EDITMODE-BEGIN*/{
   "scanlines": 0.35,
