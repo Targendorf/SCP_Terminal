@@ -45,6 +45,14 @@ function App() {
   const [cursors, setCursors] = _useState([]);
   const [remoteNav, setRemoteNav] = _useState(null); // зритель: nav от хоста
 
+  // Hack game state — synced between host and viewers
+  const [hackOpen, setHackOpen] = _useState(false);
+  const [hackDone, setHackDone] = _useState(false);
+  const [hackReward, setHackReward] = _useState(null);
+  const [hackPuzzleType, setHackPuzzleType] = _useState('wordsearch');
+  const [hackSnapshot, setHackSnapshot] = _useState(null);
+  const [pwInput, setPwInput] = _useState(null);
+
   const setTweaks = (patch) => {
     setTweaksRaw(t => {
       const next = { ...t, ...patch };
@@ -108,6 +116,12 @@ function App() {
           setCurrentTerm(null);
         }
         if (shared.nav) setRemoteNav(shared.nav);
+        if (typeof shared.hackOpen !== 'undefined') setHackOpen(shared.hackOpen);
+        if (typeof shared.hackDone !== 'undefined') setHackDone(shared.hackDone);
+        if (typeof shared.hackReward !== 'undefined') setHackReward(shared.hackReward);
+        if (typeof shared.hackPuzzleType !== 'undefined') setHackPuzzleType(shared.hackPuzzleType);
+        if (typeof shared.hackSnapshot !== 'undefined') setHackSnapshot(shared.hackSnapshot);
+        if (typeof shared.pwInput !== 'undefined') setPwInput(shared.pwInput);
       },
     });
   }, []);
@@ -123,8 +137,14 @@ function App() {
       stage,
       currentTermId: currentTerm ? currentTerm.id : null,
       nav: remoteNav, // хост сам обновит nav через onNav
+      hackOpen,
+      hackDone,
+      hackReward,
+      hackPuzzleType,
+      hackSnapshot,
+      pwInput,
     });
-  }, [sessionRole, stage, currentTerm && currentTerm.id, remoteNav && remoteNav.view, remoteNav && remoteNav.folderIdx, remoteNav && remoteNav.fileIdx]);
+  }, [sessionRole, stage, currentTerm && currentTerm.id, remoteNav && remoteNav.view, remoteNav && remoteNav.folderIdx, remoteNav && remoteNav.fileIdx, hackOpen, hackDone, hackReward, hackPuzzleType, hackSnapshot, pwInput];
 
   // Трекинг курсора
   _useEffect(() => {
@@ -164,6 +184,34 @@ function App() {
     setRemoteNav(nav);
   }, []);
 
+  // Hack game callbacks — only called by host, update state to broadcast to viewers
+  const hackHostCallbacks = _useCallback(() => ({
+    onOpen: () => setHackOpen(true),
+    onClose: () => {
+      setHackOpen(false);
+      setHackDone(false);
+      setHackReward(null);
+      setHackSnapshot(null);
+    },
+    onDone: (reward) => {
+      setHackDone(true);
+      setHackReward(reward);
+    },
+    onSnapshot: (snap) => {
+      if (snap.puzzleType) setHackPuzzleType(snap.puzzleType);
+      if (snap.puzzleState) setHackSnapshot(snap.puzzleState);
+    },
+  }), []);
+
+  // Hack view state — passed to viewers to display host's hack game
+  const hackViewState = {
+    open: hackOpen,
+    done: hackDone,
+    reward: hackReward,
+    puzzleType: hackPuzzleType,
+    snapshot: hackSnapshot,
+  };
+
   return (
     <>
       <div className="crt-screen">
@@ -193,6 +241,10 @@ function App() {
               lockInfo={lockInfo}
               setLockInfo={setLockInfo}
               canInput={isHost && !isViewer}
+              onPwChange={isHost ? (pw) => setPwInput(pw) : null}
+              syncPwInput={isViewer ? pwInput : null}
+              hackHostCallbacks={isHost ? hackHostCallbacks() : null}
+              hackViewState={isViewer ? hackViewState : null}
             />
           )}
 
