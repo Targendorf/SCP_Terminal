@@ -30,6 +30,7 @@
     callbacks: { onState: null, onCursors: null, onRole: null, onPeers: null, onStatus: null },
     disabled: false,
     _ttlInterval: null,
+    _promoteTimer: null,
   };
 
   function pickName() {
@@ -82,6 +83,10 @@
       // Ре-бродкаст всем (включая отправителя — он отфильтрует)
       broadcastFromHost({ type: 'cursors', cursors: Array.from(state.cursors.entries()).map(([id, c]) => ({ id, x: c.x, y: c.y })) });
       emitCursors();
+    } else if (msg.type === 'promote-ack') {
+      // Зритель подтвердил получение promote — теперь безопасно освобождаем HOST_ID
+      if (state._promoteTimer) { clearTimeout(state._promoteTimer); state._promoteTimer = null; }
+      retryInit();
     } else if (msg.type === 'bye') {
       state.viewerConns.delete(conn.peer);
       state.peers.delete(conn.peer);
@@ -117,9 +122,11 @@
       state.cursors = new Map((msg.cursors || []).map(c => [c.id, { x: c.x, y: c.y, t: Date.now() }]));
       emitCursors();
     } else if (msg.type === 'promote') {
-      // Host is passing control to us — claim HOST_ID after brief delay
+      // Хост передаёт нам управление — подтверждаем, затем захватываем HOST_ID
       const inheritedState = msg.state || null;
       const conn = state.hostConn;
+      // Отправляем подтверждение хосту, пока соединение ещё открыто
+      try { if (conn && conn.open) conn.send(JSON.stringify({ type: 'promote-ack' })); } catch (e) {}
       if (conn && conn._bye) { window.removeEventListener('beforeunload', conn._bye); conn._bye = null; }
       setTimeout(() => {
         if (state._ttlInterval) { clearInterval(state._ttlInterval); state._ttlInterval = null; }
@@ -137,6 +144,8 @@
           if (id === HOST_ID) {
             becomeHost();
             if (inheritedState) { state.lastSharedState = inheritedState; emit('onState', inheritedState); }
+          } else {
+            retryInit(); // не удалось получить HOST_ID — обычный реконнект
           }
         });
         newPeer.on('error', () => {
@@ -221,6 +230,7 @@
   function retryInit() {
     if (state.disabled) return;
     if (state._ttlInterval) { clearInterval(state._ttlInterval); state._ttlInterval = null; }
+    if (state._promoteTimer) { clearTimeout(state._promoteTimer); state._promoteTimer = null; }
     try { if (state.peer) state.peer.destroy(); } catch (e) {}
     state.peer = null;
     state.viewerConns.clear();
@@ -308,8 +318,8 @@
       const conn = state.viewerConns.get(targetId);
       if (!conn || !conn.open) return;
       try { conn.send(JSON.stringify({ type: 'promote', state: state.lastSharedState })); } catch (e) {}
-      // Release host role after delay (give viewer time to claim HOST_ID first)
-      setTimeout(() => retryInit(), 200);
+      // Ждём ack от зрителя; если не пришёл за 2 с — освобождаем сами
+      state._promoteTimer = setTimeout(() => { state._promoteTimer = null; retryInit(); }, 2000);
     },
     get isHost() { return state.isHost; },
     get isReady() { return state.ready; },

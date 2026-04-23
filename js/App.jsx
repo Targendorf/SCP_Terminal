@@ -313,10 +313,20 @@ function CursorOverlay({ cursors }) {
 // === Кнопка передачи контроля ===
 function ControlTransferBtn({ peers, selfId, lang }) {
   const [open, setOpen] = _useState(false);
+  const wrapRef = _useRef(null);
   const t = lang === 'ru';
 
+  _useEffect(() => {
+    if (!open) return;
+    const handler = (e) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
   // Only show viewers (exclude self)
-  const viewers = peers.filter(p => p.id !== selfId);
+  const viewers = (selfId ? peers.filter(p => p.id !== selfId) : []);
   if (viewers.length === 0) return null;
 
   const transfer = (id) => {
@@ -325,7 +335,7 @@ function ControlTransferBtn({ peers, selfId, lang }) {
   };
 
   return (
-    <div className="control-transfer-wrap">
+    <div className="control-transfer-wrap" ref={wrapRef}>
       <button className="control-transfer-btn" onClick={() => setOpen(o => !o)}>
         {t ? '⇄ ПЕРЕДАТЬ КОНТРОЛЬ' : '⇄ TRANSFER CONTROL'}
       </button>
