@@ -24,6 +24,16 @@ function PasswordScreen({
     return () => clearInterval(id);
   }, [isLocked]);
 
+  // Когда блокировка заканчивается — сбрасываем сообщение об ошибке и счётчик попыток
+  const wasLocked = useRef(false);
+  useEffect(() => {
+    if (wasLocked.current && !isLocked) {
+      setMsg(null);
+      setLockInfo({ fails: 0, until: 0 });
+    }
+    wasLocked.current = isLocked;
+  }, [isLocked]);
+
   const submit = async (e) => {
     if (e) e.preventDefault();
     if (!canInput) return;
@@ -46,7 +56,7 @@ function PasswordScreen({
       setPw('');
       if (onPwChange) onPwChange('');
       SCPAudio.denied();
-      setMsg({ kind: 'err', text: 'УКАЖИТЕ ИМЯ ЦЕЛИ: ВИРУС-ДИСКЕТА [имя]' });
+      setMsg({ kind: 'err', text: 'УКАЖИТЕ HOSTNAME ЦЕЛИ: /hack [hostname]' });
       return;
     }
     const hackMatch = hackRx.exec(entered);
@@ -68,10 +78,10 @@ function PasswordScreen({
         setMsg({ kind: 'err', text: 'ЦЕЛЬ ДЛЯ ВЗЛОМА НЕ НАСТРОЕНА' });
         return;
       }
-      const targetName = (hackTarget.name || '').toLowerCase();
-      if (typedName !== targetName) {
+      const targetHostname = (hackTarget.hostname || '').toLowerCase();
+      if (typedName !== targetHostname) {
         SCPAudio.denied();
-        setMsg({ kind: 'err', text: 'ЦЕЛЬ НЕ НАЙДЕНА' });
+        setMsg({ kind: 'err', text: 'ЦЕЛЬ НЕ НАЙДЕНА — ИСПОЛЬЗУЙТЕ HOSTNAME' });
         return;
       }
       SCPAudio.granted();
@@ -178,15 +188,12 @@ function PasswordScreen({
       <pre className="hr-ascii">{'='.repeat(120).slice(0, 200)}</pre>
 
       <div className="mono">
-        <pre>{asciiFrame('  ТРЕБУЕТСЯ АУТЕНТИФИКАЦИЯ  ', 46)}</pre>
+        <div className="auth-frame t-bright">{'ТРЕБУЕТСЯ АУТЕНТИФИКАЦИЯ'}</div>
       </div>
 
       <div className="mono" style={{marginTop: '0.5em'}}>
         <div>
           {'> Введите пароль доступа для подключения к терминалу.'}
-        </div>
-        <div className="t-dim">
-          {'> Для административного режима используйте мастер-пароль.'}
         </div>
       </div>
 
@@ -253,14 +260,13 @@ function PasswordScreen({
         <span>{'SECURE · CONTAIN · PROTECT'}</span>
         {state.virusDiskReady && state.hackTargetTerminalId && (() => {
           const tgt = (state.terminals || []).find(t => t.id === state.hackTargetTerminalId);
-          const tname = tgt ? tgt.name : '?';
+          const host = tgt ? tgt.hostname : '?';
           return (
             <span className="t-amber">
-              {'[ВИРУС-ДИСКЕТА // введите: /hack ' + tname + ']'}
+              {'[ВИРУС-ДИСКЕТА // введите: /hack ' + host + ']'}
             </span>
           );
         })()}
-        <span>{'НЕСАНКЦИОНИРОВАННЫЙ ДОСТУП ПРЕСЛЕДУЕТСЯ'}</span>
       </div>
     </div>
     </>

@@ -686,6 +686,16 @@ html, body {
   font-size: clamp(14px, 1.3vw, 18px);
 }
 
+/* Рамка "ТРЕБУЕТСЯ АУТЕНТИФИКАЦИЯ" */
+.auth-frame {
+  display: inline-block;
+  border: 1px solid var(--phosphor);
+  padding: 6px 20px;
+  letter-spacing: 0.18em;
+  text-shadow: 0 0 8px var(--phosphor);
+  box-shadow: 0 0 6px var(--phosphor-dim);
+}
+
 /* === Найденные пароли === */
 .found-pw-btn {
   position: fixed;
