@@ -24,10 +24,9 @@ function loadTweaks() {
   return { ...DEFAULT_TWEAKS };
 }
 
-// Админ-маршрут: ?admin=1 — минует мультиплеер и ведёт на ввод мастер-пароля.
-// ?admin=1&open=1 — открывает админку без ввода пароля (для мастера игры).
+// Админ-маршрут: ?admin=1 — минует мультиплеер и открывает AdminPanel напрямую.
 const IS_ADMIN_ROUTE = new URLSearchParams(location.search).get('admin') === '1';
-const IS_ADMIN_OPEN  = IS_ADMIN_ROUTE && new URLSearchParams(location.search).get('open') === '1';
+const IS_ADMIN_OPEN  = IS_ADMIN_ROUTE; // всегда открываем без пароля
 
 function App() {
   // stage: boot | login | terminal | admin | adminLogin
