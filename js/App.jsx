@@ -212,6 +212,37 @@ function App() {
     });
   }, [sessionRole, stage, currentTerm && currentTerm.id, remoteNav && remoteNav.view, remoteNav && remoteNav.folderIdx, remoteNav && remoteNav.fileIdx, hackOpen, hackDone, hackReward, hackPuzzleType, hackSnapshot, pwInput, state.virusDiskReady, state.hackTargetTerminalId, revealedHintsKey]);
 
+  // === Дублирующий бродкаст полей админки ===
+  // Главный эффект выше отправляет полный стейт, но в некоторых сценариях (например,
+  // приход обновления через BroadcastChannel('scp_admin') в тот же тик, что и переход
+  // sessionRole на 'host') effect может зафиксировать "старое" значение поля до того,
+  // как стейт пересоберётся. Этот узкий эффект гарантирует, что любое изменение
+  // virusDiskReady / hackTargetTerminalId уходит к зрителям независимо.
+  // Использует свежее значение state через stateRef + отдельный merge на стороне хоста.
+  _useEffect(() => {
+    if (IS_ADMIN_ROUTE) return;
+    if (sessionRole !== 'host') return;
+    // broadcastState теперь сохраняет lastSharedState даже если ещё не хост,
+    // поэтому передаём полный совместимый payload.
+    const revealedHints = (state.terminals || [])
+      .filter(t => t.hintRevealed)
+      .map(t => ({ id: t.id, notes: t.hintNotes || '' }));
+    SCPSession.broadcastState({
+      stage,
+      currentTermId: currentTerm ? currentTerm.id : null,
+      nav: remoteNav,
+      hackOpen,
+      hackDone,
+      hackReward,
+      hackPuzzleType,
+      hackSnapshot,
+      pwInput,
+      virusDiskReady: !!state.virusDiskReady,
+      hackTargetTermId: state.hackTargetTerminalId || null,
+      revealedHints,
+    });
+  }, [sessionRole, state.virusDiskReady, state.hackTargetTerminalId, revealedHintsKey]);
+
   // Трекинг курсора
   _useEffect(() => {
     if (IS_ADMIN_ROUTE) return;

@@ -84,9 +84,13 @@
       broadcastFromHost({ type: 'cursors', cursors: Array.from(state.cursors.entries()).map(([id, c]) => ({ id, x: c.x, y: c.y })) });
       emitCursors();
     } else if (msg.type === 'promote-ack') {
-      // Зритель подтвердил получение promote — теперь безопасно освобождаем HOST_ID
+      // Зритель подтвердил получение promote — теперь безопасно освобождаем HOST_ID.
+      // Помечаем себя как viewer ДО retryInit, чтобы _connect не пытался снова взять HOST_ID
+      // и не выиграл гонку у нового хоста (бывшего зрителя). Небольшая задержка даёт
+      // зрителю время фактически захватить HOST_ID до того, как мы попытаемся подключиться.
       if (state._promoteTimer) { clearTimeout(state._promoteTimer); state._promoteTimer = null; }
-      retryInit();
+      sessionStorage.setItem('scp_preferred_role', 'viewer');
+      setTimeout(() => retryInit(), 300);
     } else if (msg.type === 'bye') {
       state.viewerConns.delete(conn.peer);
       state.peers.delete(conn.peer);
@@ -304,9 +308,12 @@
   }
 
   // Хост: транслирует общий стейт всем зрителям.
+  // Если ещё не стали хостом — кладём пейлоад в lastSharedState,
+  // чтобы welcome для подключающегося зрителя содержал актуальные поля,
+  // а follow-up бродкасты после becomeHost уже разойдутся по DataChannel.
   function broadcastState(s) {
-    if (!state.isHost) return;
     state.lastSharedState = s;
+    if (!state.isHost) return;
     broadcastFromHost({ type: 'state', state: s });
   }
 
