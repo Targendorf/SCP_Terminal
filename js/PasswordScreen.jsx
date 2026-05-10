@@ -258,7 +258,11 @@ function PasswordScreen({
 
       <div className="status-bar t-dim">
         <span>{'SECURE · CONTAIN · PROTECT'}</span>
-        {state.virusDiskReady && state.hackTargetTerminalId && (() => {
+        {(() => {
+          if (!state.virusDiskReady) return null;
+          if (!state.hackTargetTerminalId) {
+            return <span className="t-amber">{'[ВИРУС-ДИСКЕТА АКТИВНА // ЦЕЛЬ НЕ ВЫБРАНА В АДМИНКЕ]'}</span>;
+          }
           const tgt = (state.terminals || []).find(t => t.id === state.hackTargetTerminalId);
           const host = tgt ? tgt.hostname : '?';
           return (

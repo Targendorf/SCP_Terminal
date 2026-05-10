@@ -9,17 +9,21 @@ function AdminPanel({ state, setState, onExit, onPreview }) {
 
   // Мгновенно синкаем поля, управляемые админкой, на игровые вкладки в той же сессии браузера.
   // storage event иногда подвисает (особенно на свёрнутой/неактивной вкладке) — BroadcastChannel надёжнее.
+  // Канал держим через useRef живым, чтобы close() не пересекался с postMessage.
+  const adminBcRef = useRef(null);
   useEffect(() => {
-    let bc;
+    try { adminBcRef.current = new BroadcastChannel('scp_admin'); } catch (e) {}
+    return () => { try { adminBcRef.current && adminBcRef.current.close(); } catch (e) {} adminBcRef.current = null; };
+  }, []);
+  useEffect(() => {
+    if (!adminBcRef.current) return;
     try {
-      bc = new BroadcastChannel('scp_admin');
-      bc.postMessage({
+      adminBcRef.current.postMessage({
         type: 'admin_field_update',
         virusDiskReady: !!state.virusDiskReady,
         hackTargetTerminalId: state.hackTargetTerminalId || null,
       });
     } catch (e) {}
-    return () => { try { if (bc) bc.close(); } catch (e) {} };
   }, [state.virusDiskReady, state.hackTargetTerminalId]);
 
   const L = {
