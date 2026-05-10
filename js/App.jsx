@@ -56,6 +56,8 @@ function App() {
   // Поля из game-state, которые нужны зрителям (транслируются отдельно от localStorage)
   const [sharedVirusDisk, setSharedVirusDisk] = _useState(false);
   const [sharedHackTargetId, setSharedHackTargetId] = _useState(null);
+  // Найденные пароли (hintRevealed/hintNotes) — список {id, notes}, транслируется хостом
+  const [sharedRevealedHints, setSharedRevealedHints] = _useState([]);
 
   const setTweaks = (patch) => {
     setTweaksRaw(t => {
@@ -144,6 +146,7 @@ function App() {
         if (shared.hackSnapshot     !== undefined) setHackSnapshot(shared.hackSnapshot);
         if (shared.virusDiskReady   !== undefined) setSharedVirusDisk(shared.virusDiskReady);
         if (shared.hackTargetTermId !== undefined) setSharedHackTargetId(shared.hackTargetTermId);
+        if (shared.revealedHints    !== undefined) setSharedRevealedHints(shared.revealedHints || []);
       },
     });
   }, []);
@@ -151,20 +154,38 @@ function App() {
   const isHost = sessionRole === 'host' || sessionRole === 'offline';
   const isViewer = sessionRole === 'viewer';
 
-  // Зрители получают virusDiskReady/hackTargetTerminalId через broadcast, а не из localStorage
+  // Зрители получают virusDiskReady/hackTargetTerminalId/revealedHints через broadcast, а не из localStorage
   const effectiveState = _useMemo(() => {
     if (!isViewer) return state;
+    const hintMap = new Map((sharedRevealedHints || []).map(h => [h.id, h.notes || '']));
+    const terminals = (state.terminals || []).map(t => {
+      if (hintMap.has(t.id)) {
+        return { ...t, hintRevealed: true, hintNotes: hintMap.get(t.id) };
+      }
+      // Сбрасываем локальный hintRevealed у зрителя — источник истины — хост
+      if (t.hintRevealed) return { ...t, hintRevealed: false, hintNotes: '' };
+      return t;
+    });
     return {
       ...state,
+      terminals,
       virusDiskReady: sharedVirusDisk,
       hackTargetTerminalId: sharedHackTargetId,
     };
-  }, [state, isViewer, sharedVirusDisk, sharedHackTargetId]);
+  }, [state, isViewer, sharedVirusDisk, sharedHackTargetId, sharedRevealedHints]);
 
   // Хост бродкастит стейт
+  const revealedHintsKey = _useMemo(() => (state.terminals || [])
+    .filter(t => t.hintRevealed)
+    .map(t => t.id + ':' + (t.hintNotes || ''))
+    .join('|'), [state.terminals]);
+
   _useEffect(() => {
     if (IS_ADMIN_ROUTE) return;
     if (sessionRole !== 'host') return;
+    const revealedHints = (state.terminals || [])
+      .filter(t => t.hintRevealed)
+      .map(t => ({ id: t.id, notes: t.hintNotes || '' }));
     SCPSession.broadcastState({
       stage,
       currentTermId: currentTerm ? currentTerm.id : null,
@@ -177,8 +198,9 @@ function App() {
       pwInput,
       virusDiskReady: state.virusDiskReady || false,
       hackTargetTermId: state.hackTargetTerminalId || null,
+      revealedHints,
     });
-  }, [sessionRole, stage, currentTerm && currentTerm.id, remoteNav && remoteNav.view, remoteNav && remoteNav.folderIdx, remoteNav && remoteNav.fileIdx, hackOpen, hackDone, hackReward, hackPuzzleType, hackSnapshot, pwInput, state.virusDiskReady, state.hackTargetTerminalId]);
+  }, [sessionRole, stage, currentTerm && currentTerm.id, remoteNav && remoteNav.view, remoteNav && remoteNav.folderIdx, remoteNav && remoteNav.fileIdx, hackOpen, hackDone, hackReward, hackPuzzleType, hackSnapshot, pwInput, state.virusDiskReady, state.hackTargetTerminalId, revealedHintsKey]);
 
   // Трекинг курсора
   _useEffect(() => {

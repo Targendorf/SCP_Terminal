@@ -134,7 +134,7 @@ function PasswordScreen({
 
   return (
     <>
-    {foundOpen && canInput && (
+    {foundOpen && (
       <FoundPasswordsModal
         terms={revealedTerms}
         onClose={() => setFoundOpen(false)}
@@ -228,7 +228,7 @@ function PasswordScreen({
         </div>
       )}
 
-      {canInput && revealedTerms.length > 0 && (
+      {revealedTerms.length > 0 && (
         <button className="found-pw-btn" onClick={() => setFoundOpen(true)}>
           {'[' + revealedTerms.length + ']  '}
           {'НАЙДЕННЫЕ ПАРОЛИ'}
