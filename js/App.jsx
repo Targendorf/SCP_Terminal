@@ -104,21 +104,31 @@ function App() {
   const stateRef = _useRef(state);
   _useEffect(() => { stateRef.current = state; }, [state]);
 
-  // === BROADCAST CHANNEL — принудительная перезагрузка от админки ===
+  // === BROADCAST CHANNEL — принудительная перезагрузка + мгновенный синк полей админки ===
   _useEffect(() => {
     if (IS_ADMIN_ROUTE) return;
     let bc;
     try {
       bc = new BroadcastChannel('scp_admin');
       bc.onmessage = (e) => {
-        if (e.data && e.data.type === 'force_reload') {
+        if (!e.data) return;
+        if (e.data.type === 'force_reload') {
           // sessionStorage уже хранит роль (host/viewer) — при перезагрузке восстановится
           window.location.reload();
+        } else if (e.data.type === 'admin_field_update') {
+          // Мгновенный патч полей, управляемых админкой (мимо storage event,
+          // который иногда не успевает прокинуться при быстром переключении вкладок).
+          setState(s => {
+            const next = { ...s };
+            if ('virusDiskReady' in e.data) next.virusDiskReady = !!e.data.virusDiskReady;
+            if ('hackTargetTerminalId' in e.data) next.hackTargetTerminalId = e.data.hackTargetTerminalId || null;
+            return next;
+          });
         }
       };
     } catch (e) {}
     return () => { try { if (bc) bc.close(); } catch (e) {} };
-  }, []);
+  }, [setState]);
 
   // === SESSION INIT ===
   _useEffect(() => {
