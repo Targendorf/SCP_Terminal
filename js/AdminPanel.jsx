@@ -1,4 +1,5 @@
 // Админ-панель: CRUD терминалов, папок, файлов, экспорт/импорт, логи
+// DRAFT MODE: все правки идут в локальный draft, в Firestore пишется только по кнопке СОХРАНИТЬ.
 function AdminPanel({ state, setState, onExit, onPreview }) {
   const [tab, setTab] = useState('terminals'); // terminals | logs | settings
   const [selectedTermId, setSelectedTermId] = useState(state.terminals[0]?.id || null);
@@ -6,6 +7,50 @@ function AdminPanel({ state, setState, onExit, onPreview }) {
   const [selectedFileId, setSelectedFileId] = useState(null);
   const [log, setLog] = useState(() => SCPStorage.loadLog());
   const [confirm, setConfirm] = useState(null);
+
+  // ===== DRAFT STATE =====
+  // Все правки идут сюда. setState (Firestore) вызывается только по кнопке СОХРАНИТЬ.
+  const [draft, setDraft] = useState(state);
+  const [dirty, setDirty] = useState(false);
+  // Флаг: пришёл свежий snapshot с сервера, пока юзер редактировал — показать индикатор.
+  const [hasRemoteUpdate, setHasRemoteUpdate] = useState(false);
+  const lastExternalRef = useRef(state);
+
+  // Синхронизация: prop state может прийти от Firestore (новый snapshot).
+  useEffect(() => {
+    if (state === lastExternalRef.current) return; // тот же объект — игнор
+    lastExternalRef.current = state;
+    if (!dirty) {
+      // Нет несохранённых правок — подхватываем серверный snapshot.
+      setDraft(state);
+      setHasRemoteUpdate(false);
+    } else {
+      // Есть несохранённые правки — НЕ перезаписываем draft, но отметим.
+      setHasRemoteUpdate(true);
+    }
+  }, [state, dirty]);
+
+  // Универсальный мутатор draft. fn :: prevDraft -> nextDraft
+  const mutate = (fn) => {
+    setDraft(prev => fn(prev));
+    setDirty(true);
+  };
+
+  const save = () => {
+    setState(draft);
+    setDirty(false);
+    setHasRemoteUpdate(false);
+    SCPAudio.beep(720, 0.06);
+    // lastExternalRef обновится автоматически в useEffect, когда Firestore вернёт snapshot.
+  };
+
+  const revert = () => {
+    setDraft(state);
+    setDirty(false);
+    setHasRemoteUpdate(false);
+    lastExternalRef.current = state;
+    SCPAudio.beep(420, 0.05);
+  };
 
   // BroadcastChannel удалён: все правки админа уходят через setState (= update в Firestore),
   // и каждая вкладка получает их через onSnapshot за <1с.
@@ -42,17 +87,18 @@ function AdminPanel({ state, setState, onExit, onPreview }) {
     savedAs: 'Файл JSON сохранён в загрузки.',
   };
 
-  const terminals = state.terminals;
+  // Везде читаем из draft (а не из state) — пользователь видит свои текущие правки.
+  const terminals = draft.terminals;
   const term = terminals.find(x => x.id === selectedTermId) || null;
   const folder = term ? (term.folders || []).find(x => x.id === selectedFolderId) : null;
   const file = folder ? (folder.files || []).find(x => x.id === selectedFileId) : null;
 
-  // helpers для мутаций
-  const updateTerm = (patch) => setState(s => ({...s, terminals: s.terminals.map(x => x.id === term.id ? {...x, ...patch} : x)}));
-  const updateFolder = (patch) => setState(s => ({...s, terminals: s.terminals.map(tt => tt.id !== term.id ? tt : {
+  // helpers для мутаций — теперь через mutate(draft)
+  const updateTerm = (patch) => mutate(s => ({...s, terminals: s.terminals.map(x => x.id === term.id ? {...x, ...patch} : x)}));
+  const updateFolder = (patch) => mutate(s => ({...s, terminals: s.terminals.map(tt => tt.id !== term.id ? tt : {
     ...tt, folders: (tt.folders || []).map(f => f.id === folder.id ? {...f, ...patch} : f)
   })}));
-  const updateFile = (patch) => setState(s => ({...s, terminals: s.terminals.map(tt => tt.id !== term.id ? tt : {
+  const updateFile = (patch) => mutate(s => ({...s, terminals: s.terminals.map(tt => tt.id !== term.id ? tt : {
     ...tt, folders: (tt.folders || []).map(f => f.id !== folder.id ? f : {
       ...f, files: (f.files || []).map(fl => fl.id === file.id ? {...fl, ...patch} : fl)
     })
@@ -78,7 +124,7 @@ function AdminPanel({ state, setState, onExit, onPreview }) {
       motd: ['>> СОЕДИНЕНИЕ УСТАНОВЛЕНО <<'],
       folders: [],
     };
-    setState(s => ({...s, terminals: [...s.terminals, newT]}));
+    mutate(s => ({...s, terminals: [...s.terminals, newT]}));
     setSelectedTermId(newT.id);
     setSelectedFolderId(null); setSelectedFileId(null);
     SCPAudio.beep(620, 0.05);
@@ -88,7 +134,7 @@ function AdminPanel({ state, setState, onExit, onPreview }) {
     title: 'Удалить терминал?',
     text: term.name + ' — это необратимо.',
     action: () => {
-      setState(s => ({...s, terminals: s.terminals.filter(x => x.id !== term.id)}));
+      mutate(s => ({...s, terminals: s.terminals.filter(x => x.id !== term.id)}));
       setSelectedTermId(null); setSelectedFolderId(null); setSelectedFileId(null);
     },
   });
@@ -143,17 +189,19 @@ function AdminPanel({ state, setState, onExit, onPreview }) {
     updateFile(tmpl);
   };
 
-  const doExport = () => { SCPStorage.exportJson(state); SCPAudio.granted(); };
+  // Экспорт — берём draft, чтобы выгрузить ровно то, что юзер сейчас видит на экране.
+  const doExport = () => { SCPStorage.exportJson(draft); SCPAudio.granted(); };
 
   const doImport = (e) => {
     const f = e.target.files[0];
     if (!f) return;
     SCPStorage.importJson(f).then(data => {
-      setState(data);
+      // Импорт = полная замена draft. Дорог до Firestore только через СОХРАНИТЬ.
+      mutate(_ => data);
       setSelectedTermId(data.terminals[0]?.id || null);
       setSelectedFolderId(null); setSelectedFileId(null);
       SCPAudio.granted();
-      alert('Импорт успешно завершён.');
+      alert('Импорт загружен в черновик. Нажмите СОХРАНИТЬ, чтобы применить.');
     }).catch(err => {
       SCPAudio.error();
       alert('Ошибка импорта: ' + err.message);
@@ -163,10 +211,10 @@ function AdminPanel({ state, setState, onExit, onPreview }) {
 
   const doReset = () => setConfirm({
     title: 'Сбросить всё?',
-    text: 'Все изменения будут потеряны. Будут восстановлены seed-данные.',
+    text: 'Все изменения будут потеряны. Будут восстановлены seed-данные. (Применится после СОХРАНИТЬ.)',
     action: () => {
       const seed = SCPStorage.reset();
-      setState(seed);
+      mutate(_ => seed);
       setSelectedTermId(seed.terminals[0]?.id || null);
       setSelectedFolderId(null); setSelectedFileId(null);
     },
@@ -175,18 +223,57 @@ function AdminPanel({ state, setState, onExit, onPreview }) {
   const doRestart = () => {
     // Все правки уже в Firestore. Этот тумблер просто триггерит общий reload
     // на всех клиентах (если игроки хотят перечитать после большого редактирования).
+    // НЕ идёт через draft — это самостоятельный однополевой апдейт.
     setState({ lastForceReload: Date.now() });
     SCPAudio.granted();
     alert('✓ Команда reload разослана. Игровые вкладки перезагрузятся.');
+  };
+
+  // Выход с проверкой dirty
+  const tryExit = () => {
+    if (dirty) {
+      setConfirm({
+        title: 'Есть несохранённые изменения',
+        text: 'Закрыть админ-панель без сохранения? Изменения будут потеряны.',
+        action: () => { onExit(); },
+      });
+    } else {
+      onExit();
+    }
   };
 
   return (
     <div className="admin-panel">
       <div className="flex" style={{justifyContent: 'space-between', alignItems: 'center', marginBottom: 8}}>
         <h2>{'>>> ' + L.title + ' <<<'}</h2>
-        <div className="flex gap-s">
+        <div className="flex gap-s" style={{alignItems: 'center'}}>
           <span className="t-dim mono" style={{fontSize: 14}}>{formatRetroDate(new Date())}</span>
-          <button className="btn" onClick={onExit}>{L.close}</button>
+          {hasRemoteUpdate && (
+            <span className="mono t-amber" style={{fontSize: 12}} title="На сервере появились новые данные, пока вы редактировали. Сохранение перезапишет их.">
+              {'⚠ есть свежие данные на сервере'}
+            </span>
+          )}
+          <button
+            className="btn"
+            disabled={!dirty}
+            onClick={save}
+            style={dirty
+              ? {borderColor: 'var(--phosphor-bright)', color: 'var(--phosphor-bright)', fontWeight: 'bold'}
+              : {opacity: 0.5, cursor: 'not-allowed'}}
+            title={dirty ? 'Записать черновик в Firestore' : 'Нет несохранённых изменений'}
+          >
+            {dirty ? '💾 СОХРАНИТЬ *' : '💾 СОХРАНИТЬ'}
+          </button>
+          <button
+            className="btn"
+            disabled={!dirty}
+            onClick={revert}
+            style={!dirty ? {opacity: 0.5, cursor: 'not-allowed'} : {}}
+            title={dirty ? 'Отбросить все правки, вернуть к серверной версии' : 'Нечего отменять'}
+          >
+            {'↺ ОТМЕНИТЬ'}
+          </button>
+          <button className="btn" onClick={tryExit}>{L.close}</button>
         </div>
       </div>
 
@@ -255,8 +342,8 @@ function AdminPanel({ state, setState, onExit, onPreview }) {
         <div style={{overflowY: 'auto', flex: 1}}>
           <div className="field">
             <label>{L.master}</label>
-            <input type="text" value={state.masterPassword || ''}
-              onChange={e => setState(s => ({...s, masterPassword: e.target.value}))} />
+            <input type="text" value={draft.masterPassword || ''}
+              onChange={e => mutate(s => ({...s, masterPassword: e.target.value}))} />
           </div>
 
           <div className="field" style={{padding: 10, border: '1px dashed var(--phosphor-dim)'}}>
@@ -266,27 +353,27 @@ function AdminPanel({ state, setState, onExit, onPreview }) {
             <div className="mono t-dim" style={{fontSize: 13, marginTop: 4, marginBottom: 10, lineHeight: 1.3}}>
               {'Отметьте пароли, которые игроки "нашли" в настольной игре. В экране логина у них появится кнопка НАЙДЕННЫЕ ПАРОЛИ с выбранными записями и вашими заметками.'}
             </div>
-            {state.terminals.map(term => {
-              const setHint = (patch) => setState(s => ({
+            {draft.terminals.map(t0 => {
+              const setHint = (patch) => mutate(s => ({
                 ...s,
-                terminals: s.terminals.map(x => x.id === term.id ? { ...x, ...patch } : x),
+                terminals: s.terminals.map(x => x.id === t0.id ? { ...x, ...patch } : x),
               }));
               return (
-                <div key={term.id} className="hint-row">
+                <div key={t0.id} className="hint-row">
                   <label style={{display: 'flex', alignItems: 'center', gap: 8, color: 'var(--phosphor-bright)', textTransform: 'none', fontSize: 15, marginBottom: 6}}>
-                    <input type="checkbox" checked={!!term.hintRevealed}
+                    <input type="checkbox" checked={!!t0.hintRevealed}
                       onChange={e => setHint({ hintRevealed: e.target.checked })}
                       style={{width: 'auto', accentColor: 'var(--phosphor)'}} />
                     <span>
-                      <span className="t-bright">{term.name}</span>
-                      <span className="t-dim"> · {term.hostname} · </span>
-                      <span className="t-amber" style={{letterSpacing: '0.08em'}}>{term.password}</span>
+                      <span className="t-bright">{t0.name}</span>
+                      <span className="t-dim"> · {t0.hostname} · </span>
+                      <span className="t-amber" style={{letterSpacing: '0.08em'}}>{t0.password}</span>
                     </span>
                   </label>
-                  {term.hintRevealed && (
+                  {t0.hintRevealed && (
                     <textarea
                       placeholder={'Заметка для игроков (например: "найден в кармане д-ра Клефа")'}
-                      value={term.hintNotes || ''}
+                      value={t0.hintNotes || ''}
                       onChange={e => setHint({ hintNotes: e.target.value })}
                       style={{minHeight: 60, fontSize: 14}}
                     />
@@ -298,8 +385,8 @@ function AdminPanel({ state, setState, onExit, onPreview }) {
 
           <div className="field" style={{padding: 10, border: '1px dashed var(--amber)'}}>
             <label style={{cursor: 'pointer', color: 'var(--amber)', display: 'flex', alignItems: 'center', gap: 8}}>
-              <input type="checkbox" checked={!!state.virusDiskReady}
-                onChange={e => setState(s => ({...s, virusDiskReady: e.target.checked}))}
+              <input type="checkbox" checked={!!draft.virusDiskReady}
+                onChange={e => mutate(s => ({...s, virusDiskReady: e.target.checked}))}
                 style={{width: 'auto', accentColor: 'var(--amber)'}} />
               {'💾 ВИРУС-ДИСКЕТА СОБРАНА'}
             </label>
@@ -311,18 +398,18 @@ function AdminPanel({ state, setState, onExit, onPreview }) {
               <div className="field">
                 <label>{'ЦЕЛЬ ХАКА — ТЕРМИНАЛ'}</label>
                 <select
-                  value={state.hackTargetTerminalId || ''}
-                  onChange={e => setState(s => ({...s, hackTargetTerminalId: e.target.value || null}))}
+                  value={draft.hackTargetTerminalId || ''}
+                  onChange={e => mutate(s => ({...s, hackTargetTerminalId: e.target.value || null}))}
                 >
                   <option value="">{'— выберите терминал-цель —'}</option>
-                  {state.terminals.map(term => (
-                    <option key={term.id} value={term.id}>
-                      {term.name + ' · ' + term.hostname + ' · [' + term.password + ']'}
+                  {draft.terminals.map(t0 => (
+                    <option key={t0.id} value={t0.id}>
+                      {t0.name + ' · ' + t0.hostname + ' · [' + t0.password + ']'}
                     </option>
                   ))}
                 </select>
-                {state.hackTargetTerminalId && (() => {
-                  const tgt = (state.terminals || []).find(t => t.id === state.hackTargetTerminalId);
+                {draft.hackTargetTerminalId && (() => {
+                  const tgt = (draft.terminals || []).find(t => t.id === draft.hackTargetTerminalId);
                   const tname = tgt ? tgt.name : '';
                   return tname ? (
                     <div className="mono t-amber" style={{fontSize: 12, marginTop: 6}}>
@@ -334,8 +421,8 @@ function AdminPanel({ state, setState, onExit, onPreview }) {
               <div className="field">
                 <label>{'ТИП ГОЛОВОЛОМКИ'}</label>
                 <select
-                  value={state.hackPuzzleType || 'random'}
-                  onChange={e => setState(s => ({...s, hackPuzzleType: e.target.value}))}
+                  value={draft.hackPuzzleType || 'random'}
+                  onChange={e => mutate(s => ({...s, hackPuzzleType: e.target.value}))}
                 >
                   <option value="random">{'🎲 случайная'}</option>
                   <option value="wordsearch">{'🔤 поиск слов (15×15)'}</option>
@@ -359,11 +446,13 @@ function AdminPanel({ state, setState, onExit, onPreview }) {
           </div>
           <div className="mono t-dim" style={{marginTop: 16, lineHeight: 1.4}}>
             <div>// КАК РАБОТАЕТ СОХРАНЕНИЕ //</div>
-            <div>· Все изменения автоматически сохраняются в localStorage браузера.</div>
-            <div>· Проект задеплоен статически (Vercel/Git), поэтому серверной базы нет.</div>
+            <div>· Все правки в админке копятся в локальном черновике.</div>
+            <div>· В Firestore (и игрокам) уходит только по кнопке 💾 СОХРАНИТЬ.</div>
+            <div>· ↺ ОТМЕНИТЬ — выкидывает черновик и возвращается к серверной версии.</div>
+            <div>· При попытке закрыть админку с несохранёнными правками — будет запрос подтверждения.</div>
             <div>· Чтобы передать терминалы другому мастеру или сохранить версию — используйте ЭКСПОРТ JSON.</div>
             <div>· Чтобы сделать набор терминалов \"каноном\" — замените data/seed.js в репозитории на экспортированный JSON.</div>
-            <div>· СБРОС К SEED — восстанавливает исходные терминалы из репозитория.</div>
+            <div>· СБРОС К SEED — восстанавливает исходные терминалы из репозитория (применится по СОХРАНИТЬ).</div>
           </div>
         </div>
       )}
