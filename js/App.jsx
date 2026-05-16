@@ -408,6 +408,16 @@ function App() {
   // которые могли быть обновлены другими клиентами с момента последнего snapshot,
   // отправляем в Firestore только те top-level поля, чьи ссылки реально изменились.
   const SAFE_FIELDS = ['terminals', 'masterPassword', 'virusDiskReady', 'hackTargetTerminalId', 'hackPuzzleType', 'meta', 'staff', 'stage', 'currentTermId', 'nav', 'hackGame', 'lastForceReload', 'version'];
+  // Удаляет дубликаты по id из массива (оставляет ПОСЛЕДНЕЕ вхождение —
+  // т.е. свежие правки пользователя побеждают над стейл-копией). Защита
+  // от любого источника дублей: race при одновременном save из двух tab'ов,
+  // повторное срабатывание seed_staff IIFE, импорт JSON с уже существующим id.
+  const dedupeById = (arr) => {
+    if (!Array.isArray(arr)) return arr;
+    const seen = new Map();
+    arr.forEach((x, i) => { if (x && x.id) seen.set(x.id, i); });
+    return arr.filter((x, i) => !x || !x.id || seen.get(x.id) === i);
+  };
   const setStateForAdmin = (next) => {
     let result;
     if (typeof next === 'function') {
@@ -429,6 +439,9 @@ function App() {
         patch[k] = result[k];
       });
     }
+    // Дедуп terminals и staff на стороне записи — единственный гарант.
+    if (Array.isArray(patch.terminals)) patch.terminals = dedupeById(patch.terminals);
+    if (Array.isArray(patch.staff)) patch.staff = dedupeById(patch.staff);
     if (Object.keys(patch).length === 0) return;
     update(patch);
   };

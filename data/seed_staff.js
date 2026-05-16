@@ -411,12 +411,21 @@ window.SCP_SEED_STAFF = [
   }
 ];
 
-// Автоматическое слияние с основной базой данных при загрузке
+// Автоматическое слияние с основной базой данных при загрузке.
+// Идемпотентно по id: повторный запуск (например, при горячей перезагрузке
+// или повторном include скрипта) не дублирует terminals.
 (function() {
-  if (window.SCP_SEED && window.SCP_SEED_STAFF) {
-    if (!window.SCP_SEED.terminals) window.SCP_SEED.terminals = [];
-    window.SCP_SEED.terminals = window.SCP_SEED.terminals.concat(window.SCP_SEED_STAFF);
-    console.log("SCP Terminal: Seeded 10 staff terminals.");
-  }
+  if (!window.SCP_SEED || !window.SCP_SEED_STAFF) return;
+  if (!Array.isArray(window.SCP_SEED.terminals)) window.SCP_SEED.terminals = [];
+  var existing = new Set(window.SCP_SEED.terminals.map(function (t) { return t && t.id; }));
+  var added = 0;
+  window.SCP_SEED_STAFF.forEach(function (t) {
+    if (!t || !t.id) return;
+    if (existing.has(t.id)) return;
+    window.SCP_SEED.terminals.push(t);
+    existing.add(t.id);
+    added++;
+  });
+  if (added > 0) console.log("SCP Terminal: Seeded " + added + " staff terminals.");
 })();
 
