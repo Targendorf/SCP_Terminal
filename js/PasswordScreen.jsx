@@ -45,7 +45,6 @@ function PasswordScreen({
     if (guestPwResult.ok) {
       SCPAudio.granted();
       setMsg({ kind: guestPwResult.kind || 'ok', text: guestPwResult.text });
-      // stage и currentTerm придут к нам через broadcastState — никаких onLogin локально
     } else {
       SCPAudio.denied();
       const newFails = (lockInfo?.fails || 0) + 1;
@@ -248,7 +247,7 @@ function PasswordScreen({
             if (e.target.value) SCPAudio.key();
             if (onPwChange) onPwChange(e.target.value);
           }}
-          placeholder={!inputAllowed ? 'РЕЖИМ ЗРИТЕЛЯ' : (isLocked ? 'ЗАБЛОКИРОВАНО' : (guestMode ? 'пароль (отправится хосту)' : 'введите пароль'))}
+          placeholder={!canInput ? 'РЕЖИМ ЗРИТЕЛЯ' : (isLocked ? 'ЗАБЛОКИРОВАНО' : 'введите пароль')}
         />
         {!checking && inputAllowed && <span className="caret"></span>}
       </form>
