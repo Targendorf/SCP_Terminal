@@ -331,6 +331,20 @@ function App() {
     snapshot: null, // высокочастотный snapshot не синкаем — pragmatic compromise
   } : null;
 
+  // Для AdminPanel и PasswordScreen state-форма должна быть совместима со старым кодом.
+  // ВАЖНО: useMemo'ы должны быть ДО любого early return — иначе при первом приходе
+  // snapshot'а число вызванных хуков меняется → "Rendered more hooks" crash.
+  const stateView = data || (window.SCP_SEED || {});
+  const stateForPwScreen = _useMemo(() => {
+    // Для HackGame (внутри PasswordScreen) хост и зритель должны использовать ТОТ ЖЕ
+    // puzzleType. HackGame.jsx читает state.hackPuzzleType через pickHackPuzzle.
+    // Подменяем на data.hackGame.puzzleType (выставлен в Firestore в onOpen хоста).
+    if (!data) return stateView;
+    const pt = (data.hackGame && data.hackGame.puzzleType) || data.hackPuzzleType;
+    if (pt === data.hackPuzzleType) return data;
+    return Object.assign({}, data, { hackPuzzleType: pt });
+  }, [data, data && data.hackGame && data.hackGame.puzzleType]);
+
   // === Render ===
   // Загрузочный экран пока ждём первый snapshot Firestore
   if (!data && !IS_ADMIN_ROUTE) {
@@ -348,19 +362,6 @@ function App() {
       </div>
     );
   }
-
-  // Для AdminPanel и PasswordScreen state-форма должна быть совместима со старым кодом
-  const stateView = data || (window.SCP_SEED || {});
-  // Для HackGame (внутри PasswordScreen) нужно, чтобы хост использовал ТОТ ЖЕ puzzleType,
-  // что и зритель. HackGame.jsx читает state.hackPuzzleType через pickHackPuzzle. Подменяем
-  // его на hackGame.puzzleType (он был выставлен в Firestore в hackHostCallbacks.onOpen
-  // ровно один раз). Иначе хост и зритель выбирают random независимо.
-  const stateForPwScreen = _useMemo(() => {
-    if (!data) return stateView;
-    const pt = (data.hackGame && data.hackGame.puzzleType) || data.hackPuzzleType;
-    if (pt === data.hackPuzzleType) return data;
-    return Object.assign({}, data, { hackPuzzleType: pt });
-  }, [data, data && data.hackGame && data.hackGame.puzzleType]);
   // setState-совместимая обёртка для AdminPanel: принимает либо patch-объект,
   // либо updater(prev). Чтобы не затирать participants/controlOwner/updatedAt,
   // которые могли быть обновлены другими клиентами с момента последнего snapshot,
