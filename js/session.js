@@ -1,359 +1,265 @@
-// SCPSession — P2P-синхронизация сессии через PeerJS (бесплатный публичный брокер).
-// Первый подключившийся к "комнате" становится ХОСТОМ (управляет терминалом),
-// остальные — ЗРИТЕЛЯМИ (смотрят и показывают свои курсоры).
-// Админ не использует session.js — у него отдельный маршрут ?admin=1.
+// SCPSession — P2P presence (cursors only) через PeerJS.
+// Game state синхронизируется через Firestore (см. js/firebase.js).
+// PeerJS используется только для high-frequency cursor broadcast — write quota
+// Firestore туда тратить не хочется.
 (function () {
-  // Room ID. По дефолту — нормализованный host+pathname (объединяет http/https,
-  // /index.html, trailing slash, чтобы preview и production деплои на vercel
-  // не оказывались в разных комнатах). Можно жёстко задать через ?room=foo —
-  // тогда любые URL с одинаковым room-параметром попадут в одну комнату.
   function hashStr(s) {
-    let h = 5381;
-    for (let i = 0; i < s.length; i++) h = ((h * 33) ^ s.charCodeAt(i)) >>> 0;
+    var h = 5381;
+    for (var i = 0; i < s.length; i++) h = ((h * 33) ^ s.charCodeAt(i)) >>> 0;
     return h.toString(36);
   }
   function normalizePath(p) {
-    let n = (p || '/').replace(/\/index\.html?$/i, '/').replace(/\/+/g, '/');
+    var n = (p || '/').replace(/\/index\.html?$/i, '/').replace(/\/+/g, '/');
     if (n.length > 1 && n.endsWith('/')) n = n.slice(0, -1);
     return n || '/';
   }
-  let _roomKey;
+  var _roomKey;
   try {
-    const url = new URL(location.href);
+    var url = new URL(location.href);
     _roomKey = url.searchParams.get('room') || (location.host + normalizePath(location.pathname));
   } catch (e) {
     _roomKey = location.host + normalizePath(location.pathname || '/');
   }
-  const ROOM = hashStr('scp-terminal-v1::' + _roomKey);
-  const HOST_ID = 'scp-term-host-' + ROOM;
+  var ROOM = hashStr('scp-terminal-v1::' + _roomKey);
+  // Cursor-room хост-id: первый кто подключается, держит cursor-hub.
+  var HUB_ID = 'scp-term-cursors-' + ROOM;
 
-  const PALETTE = ['#ff66aa', '#ffcc33', '#66ccff', '#cc88ff', '#ff8844', '#88ffcc', '#ffaaee', '#aaff88'];
-  const NAME_A = ['ALPHA','BRAVO','CHARLIE','DELTA','ECHO','FOXTROT','GOLF','HOTEL','INDIA','JULIET','KILO','LIMA','MIKE','NOVEMBER'];
+  var PALETTE = ['#ff66aa', '#ffcc33', '#66ccff', '#cc88ff', '#ff8844', '#88ffcc', '#ffaaee', '#aaff88'];
+  var NAME_A = ['ALPHA','BRAVO','CHARLIE','DELTA','ECHO','FOXTROT','GOLF','HOTEL','INDIA','JULIET','KILO','LIMA','MIKE','NOVEMBER'];
 
-  let state = {
+  var state = {
     ready: false,
-    isHost: false,
+    isHub: false,
     selfId: null,
     selfName: null,
     selfColor: null,
-    peer: null,             // PeerJS peer
-    hostConn: null,         // DataConnection to host (viewer only)
-    viewerConns: new Map(), // id -> DataConnection (host only)
-    peers: new Map(),       // id -> {name, color}   (known peers incl. self)
+    peer: null,
+    hubConn: null,
+    viewerConns: new Map(),
+    peers: new Map(),       // id -> {name, color}
     cursors: new Map(),     // id -> {x, y, t}
-    lastSharedState: null,
-    lastSharedTerminals: null,   // {terminals, masterPassword, virusDiskReady, hackTargetTerminalId, revealedHints}
-    callbacks: { onState: null, onCursors: null, onRole: null, onPeers: null, onStatus: null, onPasswordAttempt: null, onPasswordResult: null, onTerminals: null },
+    callbacks: { onCursors: null, onPeers: null, onSelf: null },
     disabled: false,
     _ttlInterval: null,
-    _promoteTimer: null,
   };
 
   function pickName() {
-    const a = NAME_A[Math.floor(Math.random() * NAME_A.length)];
-    const n = Math.floor(Math.random() * 90 + 10);
+    var a = NAME_A[Math.floor(Math.random() * NAME_A.length)];
+    var n = Math.floor(Math.random() * 90 + 10);
     return 'NODE-' + a + '-' + n;
   }
   function pickColor() { return PALETTE[Math.floor(Math.random() * PALETTE.length)]; }
 
   function emit(name, v) {
-    const cb = state.callbacks[name];
+    var cb = state.callbacks[name];
     if (cb) try { cb(v); } catch (e) { console.warn('SCPSession cb error', e); }
   }
   function emitPeers() {
-    emit('onPeers', Array.from(state.peers.entries()).map(([id, p]) => ({ id, ...p })));
+    var arr = [];
+    state.peers.forEach(function (p, id) { arr.push({ id: id, name: p.name, color: p.color }); });
+    emit('onPeers', arr);
   }
   function emitCursors() {
-    const list = [];
-    state.cursors.forEach((c, id) => {
-      if (id === state.selfId) return; // свой курсор не показываем
-      const p = state.peers.get(id);
-      list.push({ id, x: c.x, y: c.y, name: p ? p.name : '?', color: p ? p.color : '#fff' });
+    var list = [];
+    state.cursors.forEach(function (c, id) {
+      if (id === state.selfId) return;
+      var p = state.peers.get(id);
+      list.push({ id: id, x: c.x, y: c.y, name: p ? p.name : '?', color: p ? p.color : '#fff' });
     });
     emit('onCursors', list);
   }
 
-  function broadcastFromHost(msg) {
-    const data = JSON.stringify(msg);
-    state.viewerConns.forEach(c => { try { c.send(data); } catch (e) {} });
+  function broadcastFromHub(msg) {
+    var data = JSON.stringify(msg);
+    state.viewerConns.forEach(function (c) { try { c.send(data); } catch (e) {} });
   }
 
-  function onHostData(conn, raw) {
-    let msg;
+  function onHubData(conn, raw) {
+    var msg;
     try { msg = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch (e) { return; }
     if (!msg || !msg.type) return;
     if (msg.type === 'hello') {
-      // Зритель представился
       state.peers.set(conn.peer, { name: msg.name, color: msg.color });
-      // Ответим полным стейтом + терминалами + списком пиров
-      const payload = {
-        type: 'welcome',
-        peers: Array.from(state.peers.entries()).map(([id, p]) => ({ id, ...p })),
-        state: state.lastSharedState,
-        terminals: state.lastSharedTerminals,
-      };
-      try { conn.send(JSON.stringify(payload)); } catch (e) {}
+      var peersList = [];
+      state.peers.forEach(function (p, id) { peersList.push({ id: id, name: p.name, color: p.color }); });
+      try { conn.send(JSON.stringify({ type: 'welcome', peers: peersList })); } catch (e) {}
       emitPeers();
-      broadcastFromHost({ type: 'peers', peers: Array.from(state.peers.entries()).map(([id, p]) => ({ id, ...p })) });
+      broadcastFromHub({ type: 'peers', peers: peersList });
     } else if (msg.type === 'cursor') {
       state.cursors.set(conn.peer, { x: msg.x, y: msg.y, t: Date.now() });
-      // Ре-бродкаст всем (включая отправителя — он отфильтрует)
-      broadcastFromHost({ type: 'cursors', cursors: Array.from(state.cursors.entries()).map(([id, c]) => ({ id, x: c.x, y: c.y })) });
+      var cursorsList = [];
+      state.cursors.forEach(function (c, id) { cursorsList.push({ id: id, x: c.x, y: c.y }); });
+      broadcastFromHub({ type: 'cursors', cursors: cursorsList });
       emitCursors();
-    } else if (msg.type === 'password-attempt') {
-      // Зритель попробовал ввести пароль — отдаём в приложение для валидации хостом
-      emit('onPasswordAttempt', { senderId: conn.peer, value: msg.value });
-    } else if (msg.type === 'promote-via-reload-ack') {
-      // Зритель подтвердил, что записал inherited snapshot в свой localStorage
-      // и сейчас перезагрузится. Освобождаем HOST_ID немедленно (destroy peer),
-      // ставим себе preferred_role=viewer и тоже reload'аем — после reload
-      // подключимся к новому хосту как обычный зритель.
-      if (state._promoteTimer) { clearTimeout(state._promoteTimer); state._promoteTimer = null; }
-      try { if (state.peer) state.peer.destroy(); } catch (e) {}
-      sessionStorage.setItem('scp_preferred_role', 'viewer');
-      setTimeout(() => { try { window.location.reload(); } catch (e) {} }, 150);
     } else if (msg.type === 'bye') {
       state.viewerConns.delete(conn.peer);
       state.peers.delete(conn.peer);
       state.cursors.delete(conn.peer);
       emitPeers();
       emitCursors();
-      broadcastFromHost({
-        type: 'peers',
-        peers: Array.from(state.peers.entries()).map(([id, p]) => ({ id, ...p })),
-      });
+      var peersList2 = [];
+      state.peers.forEach(function (p, id) { peersList2.push({ id: id, name: p.name, color: p.color }); });
+      broadcastFromHub({ type: 'peers', peers: peersList2 });
       try { conn.close(); } catch (e) {}
     }
   }
 
   function onViewerData(raw) {
-    let msg;
+    var msg;
     try { msg = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch (e) { return; }
     if (!msg || !msg.type) return;
     if (msg.type === 'welcome') {
-      state.peers = new Map((msg.peers || []).map(p => [p.id, { name: p.name, color: p.color }]));
+      state.peers = new Map();
+      (msg.peers || []).forEach(function (p) { state.peers.set(p.id, { name: p.name, color: p.color }); });
       if (!state.peers.has(state.selfId)) {
         state.peers.set(state.selfId, { name: state.selfName, color: state.selfColor });
       }
       emitPeers();
-      if (msg.state) { state.lastSharedState = msg.state; emit('onState', msg.state); }
-      if (msg.terminals) { state.lastSharedTerminals = msg.terminals; emit('onTerminals', msg.terminals); }
-    } else if (msg.type === 'terminals') {
-      state.lastSharedTerminals = msg.payload;
-      emit('onTerminals', msg.payload);
     } else if (msg.type === 'peers') {
-      state.peers = new Map((msg.peers || []).map(p => [p.id, { name: p.name, color: p.color }]));
+      state.peers = new Map();
+      (msg.peers || []).forEach(function (p) { state.peers.set(p.id, { name: p.name, color: p.color }); });
       emitPeers();
-    } else if (msg.type === 'state') {
-      state.lastSharedState = msg.state;
-      emit('onState', msg.state);
     } else if (msg.type === 'cursors') {
-      state.cursors = new Map((msg.cursors || []).map(c => [c.id, { x: c.x, y: c.y, t: Date.now() }]));
+      state.cursors = new Map();
+      (msg.cursors || []).forEach(function (c) { state.cursors.set(c.id, { x: c.x, y: c.y, t: Date.now() }); });
       emitCursors();
-    } else if (msg.type === 'password-result') {
-      // Ответ хоста на нашу попытку ввести пароль
-      emit('onPasswordResult', msg);
-    } else if (msg.type === 'reload') {
-      // Хост попросил всех зрителей перезагрузиться (после Sync в админке).
-      setTimeout(() => { try { window.location.reload(); } catch (e) {} }, 200);
-    } else if (msg.type === 'promote-via-reload') {
-      // Хост передаёт нам контроль через reload-based handoff. Пишем inherited
-      // snapshot в свой localStorage и помечаемся как будущий хост — после reload
-      // useStore поднимет правильные terminals/masterPassword, а SCPSession.init
-      // занимет HOST_ID. Никаких React-гонок, всё через надёжный LS.
-      const blob = (msg && msg.stateBlob) || {};
-      try {
-        const cur = JSON.parse(localStorage.getItem('scp_terminal_state_v1') || '{}');
-        const merged = { ...cur };
-        if (Array.isArray(blob.terminals)) merged.terminals = blob.terminals;
-        if (blob.masterPassword !== undefined) merged.masterPassword = blob.masterPassword;
-        if (blob.virusDiskReady !== undefined) merged.virusDiskReady = !!blob.virusDiskReady;
-        if (blob.hackTargetTerminalId !== undefined) merged.hackTargetTerminalId = blob.hackTargetTerminalId || null;
-        localStorage.setItem('scp_terminal_state_v1', JSON.stringify(merged));
-      } catch (e) {}
-      sessionStorage.setItem('scp_preferred_role', 'host');
-      // Шлём ack — старый хост по нему отпустит HOST_ID и тоже reload'нётся как viewer
-      try { if (state.hostConn && state.hostConn.open) state.hostConn.send(JSON.stringify({ type: 'promote-via-reload-ack' })); } catch (e) {}
-      // Reload спустя 1с — даём старому хосту время destroy peer и освободить HOST_ID
-      setTimeout(() => { try { window.location.reload(); } catch (e) {} }, 1000);
     }
   }
 
-  function becomeHost() {
-    sessionStorage.setItem('scp_preferred_role', 'host');
-    state.isHost = true;
+  function becomeHub() {
+    state.isHub = true;
     state.ready = true;
-    state.selfId = HOST_ID;
+    state.selfId = HUB_ID;
     state.peers.set(state.selfId, { name: state.selfName, color: state.selfColor });
-    emit('onRole', 'host');
-    emit('onStatus', 'host');
+    emit('onSelf', { id: state.selfId, name: state.selfName, color: state.selfColor });
     emitPeers();
 
-    state.peer.on('connection', (conn) => {
-      conn.on('open', () => {
-        state.viewerConns.set(conn.peer, conn);
-      });
-      conn.on('data', (data) => onHostData(conn, data));
-      conn.on('close', () => {
+    state.peer.on('connection', function (conn) {
+      conn.on('open', function () { state.viewerConns.set(conn.peer, conn); });
+      conn.on('data', function (data) { onHubData(conn, data); });
+      conn.on('close', function () {
         state.viewerConns.delete(conn.peer);
         state.peers.delete(conn.peer);
         state.cursors.delete(conn.peer);
         emitPeers();
         emitCursors();
-        broadcastFromHost({ type: 'peers', peers: Array.from(state.peers.entries()).map(([id, p]) => ({ id, ...p })) });
+        var peersList = [];
+        state.peers.forEach(function (p, id) { peersList.push({ id: id, name: p.name, color: p.color }); });
+        broadcastFromHub({ type: 'peers', peers: peersList });
       });
-      conn.on('error', () => {});
+      conn.on('error', function () {});
     });
 
-    // Purge cursors that haven't moved in 5 s — handles tabs closed without a clean goodbye
-    state._ttlInterval = setInterval(() => {
-      const STALE_MS = 5000;
-      const now = Date.now();
-      let changed = false;
-      state.cursors.forEach((c, id) => {
+    state._ttlInterval = setInterval(function () {
+      var STALE_MS = 5000;
+      var now = Date.now();
+      var changed = false;
+      state.cursors.forEach(function (c, id) {
         if (now - c.t > STALE_MS) { state.cursors.delete(id); changed = true; }
       });
       if (changed) {
-        broadcastFromHost({
-          type: 'cursors',
-          cursors: Array.from(state.cursors.entries()).map(([id, c]) => ({ id, x: c.x, y: c.y })),
-        });
+        var cursorsList = [];
+        state.cursors.forEach(function (c, id) { cursorsList.push({ id: id, x: c.x, y: c.y }); });
+        broadcastFromHub({ type: 'cursors', cursors: cursorsList });
         emitCursors();
       }
     }, 3000);
   }
 
   function becomeViewer() {
-    sessionStorage.setItem('scp_preferred_role', 'viewer');
-    state.isHost = false;
+    state.isHub = false;
     state.selfId = state.peer.id;
     state.peers.set(state.selfId, { name: state.selfName, color: state.selfColor });
-    emit('onRole', 'viewer');
-    emit('onStatus', 'connecting');
+    emit('onSelf', { id: state.selfId, name: state.selfName, color: state.selfColor });
 
-    const conn = state.peer.connect(HOST_ID, { reliable: true });
-    state.hostConn = conn;
+    var conn = state.peer.connect(HUB_ID, { reliable: true });
+    state.hubConn = conn;
 
-    // Safety net: если хост по факту не существует (HOST_ID никто не занял)
-    // или не отвечает welcome — за 4.5с сбрасываем preferred_role и пробуем стать хостом сами.
-    let welcomeOk = false;
-    const welcomeTimer = setTimeout(() => {
+    var welcomeOk = false;
+    var welcomeTimer = setTimeout(function () {
       if (welcomeOk) return;
       try { conn.close(); } catch (e) {}
-      sessionStorage.removeItem('scp_preferred_role');
       retryInit();
     }, 4500);
 
-    conn.on('open', () => {
+    conn.on('open', function () {
       state.ready = true;
-      emit('onStatus', 'viewer');
       try { conn.send(JSON.stringify({ type: 'hello', name: state.selfName, color: state.selfColor })); } catch (e) {}
-      const _bye = () => { try { conn.send(JSON.stringify({ type: 'bye' })); } catch (e) {} };
+      var _bye = function () { try { conn.send(JSON.stringify({ type: 'bye' })); } catch (e) {} };
       window.addEventListener('beforeunload', _bye);
       conn._bye = _bye;
     });
-    conn.on('data', (raw) => {
+    conn.on('data', function (raw) {
       if (!welcomeOk) {
         try {
-          const m = typeof raw === 'string' ? JSON.parse(raw) : raw;
+          var m = typeof raw === 'string' ? JSON.parse(raw) : raw;
           if (m && m.type === 'welcome') { welcomeOk = true; clearTimeout(welcomeTimer); }
         } catch (e) {}
       }
       onViewerData(raw);
     });
-    conn.on('close', () => {
+    conn.on('close', function () {
       clearTimeout(welcomeTimer);
       if (conn._bye) { window.removeEventListener('beforeunload', conn._bye); conn._bye = null; }
       state.ready = false;
-      emit('onStatus', 'disconnected');
-      // Хост отвалился — попытаемся стать хостом через retryInit
-      setTimeout(() => retryInit(), 1200);
+      setTimeout(function () { retryInit(); }, 1200);
     });
-    conn.on('error', () => {
-      // peer-unavailable и подобные — досрочный fail, не ждём весь таймаут
+    conn.on('error', function () {
       if (welcomeOk) return;
       clearTimeout(welcomeTimer);
       try { conn.close(); } catch (e) {}
-      sessionStorage.removeItem('scp_preferred_role');
-      setTimeout(() => retryInit(), 800);
+      setTimeout(function () { retryInit(); }, 800);
     });
   }
 
   function retryInit() {
     if (state.disabled) return;
     if (state._ttlInterval) { clearInterval(state._ttlInterval); state._ttlInterval = null; }
-    if (state._promoteTimer) { clearTimeout(state._promoteTimer); state._promoteTimer = null; }
     try { if (state.peer) state.peer.destroy(); } catch (e) {}
     state.peer = null;
     state.viewerConns.clear();
     state.peers.clear();
     state.cursors.clear();
-    state.hostConn = null;
+    state.hubConn = null;
     _connect();
   }
 
   function _connect() {
     if (!window.Peer) {
-      console.warn('SCPSession: PeerJS не загружен — session отключена.');
-      emit('onStatus', 'offline');
+      console.warn('SCPSession: PeerJS не загружен — cursors отключены.');
       return;
     }
-    // Если вкладка была зрителем — не конкурируем за HOST_ID, сразу идём как зритель
-    if (sessionStorage.getItem('scp_preferred_role') === 'viewer') {
-      emit('onStatus', 'connecting');
-      const viewer = new Peer({ debug: 0 });
-      state.peer = viewer;
-      viewer.on('open', () => becomeViewer());
-      viewer.on('error', (e2) => {
-        // peer-unavailable приходит на peer-level, а не на conn — сюда. Хост
-        // на самом деле не существует → сбросить sticky-роль и попробовать стать хостом.
-        if (e2 && (e2.type === 'peer-unavailable' || /Could not connect to peer/i.test(String(e2.message || '')))) {
-          sessionStorage.removeItem('scp_preferred_role');
-          setTimeout(() => retryInit(), 400);
-          return;
-        }
-        console.warn('SCPSession viewer error', e2);
-        emit('onStatus', 'offline');
-      });
-      return;
-    }
-    // Пытаемся взять host-id
-    const attemptHost = new Peer(HOST_ID, { debug: 0 });
-    state.peer = attemptHost;
-    let resolved = false;
-
-    attemptHost.on('open', (id) => {
+    var attemptHub = new Peer(HUB_ID, { debug: 0 });
+    state.peer = attemptHub;
+    var resolved = false;
+    attemptHub.on('open', function (id) {
       if (resolved) return;
       resolved = true;
-      if (id === HOST_ID) becomeHost();
+      if (id === HUB_ID) becomeHub();
     });
-    attemptHost.on('error', (err) => {
+    attemptHub.on('error', function (err) {
       if (resolved) return;
       resolved = true;
-      try { attemptHost.destroy(); } catch (e) {}
+      try { attemptHub.destroy(); } catch (e) {}
       if (err && err.type === 'unavailable-id') {
-        // Кто-то уже держит HOST_ID — становимся зрителем
-        const viewer = new Peer({ debug: 0 });
+        var viewer = new Peer({ debug: 0 });
         state.peer = viewer;
-        viewer.on('open', () => becomeViewer());
-        viewer.on('error', (e2) => {
+        viewer.on('open', function () { becomeViewer(); });
+        viewer.on('error', function (e2) {
           if (e2 && (e2.type === 'peer-unavailable' || /Could not connect to peer/i.test(String(e2.message || '')))) {
-            sessionStorage.removeItem('scp_preferred_role');
-            setTimeout(() => retryInit(), 400);
+            setTimeout(function () { retryInit(); }, 400);
             return;
           }
           console.warn('SCPSession viewer error', e2);
-          emit('onStatus', 'offline');
         });
       } else {
-        console.warn('SCPSession host error', err);
-        emit('onStatus', 'offline');
+        console.warn('SCPSession hub error', err);
       }
     });
   }
 
   function init(opts) {
-    if (state.peer) return; // уже инициализирован
+    if (state.peer) return;
     state.callbacks = Object.assign({}, state.callbacks, opts || {});
     state.selfName = pickName();
     state.selfColor = pickColor();
@@ -365,87 +271,28 @@
     try { if (state.peer) state.peer.destroy(); } catch (e) {}
   }
 
-  // Хост: транслирует общий стейт всем зрителям.
-  // Если ещё не стали хостом — кладём пейлоад в lastSharedState,
-  // чтобы welcome для подключающегося зрителя содержал актуальные поля,
-  // а follow-up бродкасты после becomeHost уже разойдутся по DataChannel.
-  function broadcastState(s) {
-    state.lastSharedState = s;
-    if (!state.isHost) return;
-    broadcastFromHost({ type: 'state', state: s });
-  }
-
-  // Хост: транслирует терминалы и админ-конфиг (источник истины для зрителей).
-  // Шлётся реже broadcastState — только при изменении state.terminals/masterPassword
-  // и админских флагов. Зритель использует это вместо своего локального localStorage.
-  function broadcastTerminals(payload) {
-    state.lastSharedTerminals = payload;
-    if (!state.isHost) return;
-    broadcastFromHost({ type: 'terminals', payload });
-  }
-
-  let lastCursorSend = 0;
+  var lastCursorSend = 0;
   function sendCursor(x, y) {
     if (!state.ready) return;
-    const now = Date.now();
+    var now = Date.now();
     if (now - lastCursorSend < 60) return; // ~16 Hz
     lastCursorSend = now;
-    if (state.isHost) {
-      state.cursors.set(state.selfId, { x, y, t: now });
-      broadcastFromHost({ type: 'cursors', cursors: Array.from(state.cursors.entries()).map(([id, c]) => ({ id, x: c.x, y: c.y })) });
+    if (state.isHub) {
+      state.cursors.set(state.selfId, { x: x, y: y, t: now });
+      var cursorsList = [];
+      state.cursors.forEach(function (c, id) { cursorsList.push({ id: id, x: c.x, y: c.y }); });
+      broadcastFromHub({ type: 'cursors', cursors: cursorsList });
       emitCursors();
-    } else if (state.hostConn && state.hostConn.open) {
-      try { state.hostConn.send(JSON.stringify({ type: 'cursor', x, y })); } catch (e) {}
+    } else if (state.hubConn && state.hubConn.open) {
+      try { state.hubConn.send(JSON.stringify({ type: 'cursor', x: x, y: y })); } catch (e) {}
     }
   }
 
-  // Хост: разослать всем зрителям команду reload (после Sync в админке).
-  function broadcastReload() {
-    if (!state.isHost) return;
-    broadcastFromHost({ type: 'reload' });
-  }
-
-  // Зритель → хост: отправить попытку пароля на серверную валидацию.
-  function sendPasswordAttempt(value) {
-    if (state.isHost) return;
-    if (!state.hostConn || !state.hostConn.open) return;
-    try { state.hostConn.send(JSON.stringify({ type: 'password-attempt', value })); } catch (e) {}
-  }
-
-  // Хост → конкретный зритель: послать ответ/результат.
-  function sendToPeer(targetId, msg) {
-    if (!state.isHost) return;
-    const conn = state.viewerConns.get(targetId);
-    if (!conn || !conn.open) return;
-    try { conn.send(JSON.stringify(msg)); } catch (e) {}
-  }
-
   window.SCPSession = {
-    init, disable, broadcastState, broadcastTerminals, broadcastReload, sendCursor,
-    sendPasswordAttempt, sendToPeer,
+    init: init,
+    disable: disable,
+    sendCursor: sendCursor,
     roomId: ROOM,
-    transferControl: (targetId) => {
-      if (!state.isHost) return;
-      const conn = state.viewerConns.get(targetId);
-      if (!conn || !conn.open) return;
-      // Reload-based handoff: посылаем зрителю наш текущий snapshot terminals,
-      // он пишет его в свой localStorage, ставит preferred_role=host, шлёт ack
-      // и перезагружается. По ack мы у себя ставим preferred_role=viewer и тоже
-      // reload'аемся. После перезагрузок роли надёжно меняются местами без
-      // React-гонок и без хрупкой PeerJS-репромоции в рамках одной сессии.
-      const blob = state.lastSharedTerminals || null;
-      try {
-        conn.send(JSON.stringify({ type: 'promote-via-reload', stateBlob: blob }));
-      } catch (e) {}
-      // Если ack не пришёл за 3с — fallback: всё равно становимся viewer'ом и reload'аемся.
-      // Тогда зритель тоже после своего таймаута reload'а займёт HOST_ID.
-      state._promoteTimer = setTimeout(() => {
-        state._promoteTimer = null;
-        sessionStorage.setItem('scp_preferred_role', 'viewer');
-        try { window.location.reload(); } catch (e) {}
-      }, 3000);
-    },
-    get isHost() { return state.isHost; },
     get isReady() { return state.ready; },
     get selfId() { return state.selfId; },
     get selfName() { return state.selfName; },

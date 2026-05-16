@@ -7,24 +7,8 @@ function AdminPanel({ state, setState, onExit, onPreview }) {
   const [log, setLog] = useState(() => SCPStorage.loadLog());
   const [confirm, setConfirm] = useState(null);
 
-  // Мгновенно синкаем поля, управляемые админкой, на игровые вкладки в той же сессии браузера.
-  // storage event иногда подвисает (особенно на свёрнутой/неактивной вкладке) — BroadcastChannel надёжнее.
-  // Канал держим через useRef живым, чтобы close() не пересекался с postMessage.
-  const adminBcRef = useRef(null);
-  useEffect(() => {
-    try { adminBcRef.current = new BroadcastChannel('scp_admin'); } catch (e) {}
-    return () => { try { adminBcRef.current && adminBcRef.current.close(); } catch (e) {} adminBcRef.current = null; };
-  }, []);
-  useEffect(() => {
-    if (!adminBcRef.current) return;
-    try {
-      adminBcRef.current.postMessage({
-        type: 'admin_field_update',
-        virusDiskReady: !!state.virusDiskReady,
-        hackTargetTerminalId: state.hackTargetTerminalId || null,
-      });
-    } catch (e) {}
-  }, [state.virusDiskReady, state.hackTargetTerminalId]);
+  // BroadcastChannel удалён: все правки админа уходят через setState (= update в Firestore),
+  // и каждая вкладка получает их через onSnapshot за <1с.
 
   const L = {
     title: 'АДМИНИСТРАТИВНАЯ КОНСОЛЬ',
@@ -189,15 +173,11 @@ function AdminPanel({ state, setState, onExit, onPreview }) {
   });
 
   const doRestart = () => {
-    SCPStorage.save(state);
-    // Уведомляем все игровые вкладки — они перезагрузятся, сохранив свои роли
-    try {
-      const bc = new BroadcastChannel('scp_admin');
-      bc.postMessage({ type: 'force_reload' });
-      bc.close();
-    } catch (e) {}
+    // Все правки уже в Firestore. Этот тумблер просто триггерит общий reload
+    // на всех клиентах (если игроки хотят перечитать после большого редактирования).
+    setState({ lastForceReload: Date.now() });
     SCPAudio.granted();
-    alert('✓ Данные сохранены. Игровые вкладки обновятся автоматически.');
+    alert('✓ Команда reload разослана. Игровые вкладки перезагрузятся.');
   };
 
   return (

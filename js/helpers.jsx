@@ -6,28 +6,9 @@ window.uid = function (prefix) {
   return (prefix || 'id') + '-' + Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-3);
 };
 
-// Локальный стор с React
-window.useStore = function () {
-  const [state, setState] = useState(() => SCPStorage.load());
-  useEffect(() => { SCPStorage.save(state); }, [state]);
-
-  // Подхватываем изменения из других вкладок (например, из вкладки ?admin=1)
-  useEffect(() => {
-    const handler = (e) => {
-      if (e.key !== 'scp_terminal_state_v1' || !e.newValue) return;
-      try {
-        const incoming = JSON.parse(e.newValue);
-        if (incoming && Array.isArray(incoming.terminals)) {
-          setState(incoming);
-        }
-      } catch (_) {}
-    };
-    window.addEventListener('storage', handler);
-    return () => window.removeEventListener('storage', handler);
-  }, []);
-
-  return [state, setState];
-};
+// useStore удалён: единый источник истины теперь Firestore (см. js/firebase.js,
+// хук useFirestoreSession в App.jsx). SCPStorage остаётся для export/import JSON
+// и журнала входов в localStorage.
 
 
 // Сейчас 1991 — форматируем в псевдо-старый формат времени

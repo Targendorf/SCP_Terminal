@@ -1,13 +1,10 @@
 // Экран ввода пароля
 function PasswordScreen({
   state, onLogin, onMasterUnlock, lockInfo, setLockInfo, canInput = true,
-  onPwChange, syncPwInput,
   hackHostCallbacks, hackViewState,
-  onGuestSubmit, guestPwResult, onGuestResultConsumed,
 }) {
-  // Зритель тоже может вводить — если ему дали канал отправки
-  const guestMode = !canInput && !!onGuestSubmit;
-  const inputAllowed = canInput || guestMode;
+  // Только хост вводит. Зрители просто смотрят.
+  const inputAllowed = canInput;
   const [pw, setPw] = useState('');
   const [checking, setChecking] = useState(false);
   const [msg, setMsg] = useState(null);
@@ -16,8 +13,8 @@ function PasswordScreen({
   const inputRef = useRef(null);
 
   useEffect(() => {
-    if (inputRef.current) inputRef.current.focus();
-  }, []);
+    if (inputRef.current && inputAllowed) inputRef.current.focus();
+  }, [inputAllowed]);
 
   // блокировка после неудачных попыток
   const isLocked = lockInfo && lockInfo.until > Date.now();
@@ -38,42 +35,11 @@ function PasswordScreen({
     wasLocked.current = isLocked;
   }, [isLocked]);
 
-  // Гостевой режим: пришёл ответ хоста на password-attempt
-  useEffect(() => {
-    if (!guestMode || !guestPwResult) return;
-    setChecking(false);
-    if (guestPwResult.ok) {
-      SCPAudio.granted();
-      setMsg({ kind: guestPwResult.kind || 'ok', text: guestPwResult.text });
-    } else {
-      SCPAudio.denied();
-      const newFails = (lockInfo?.fails || 0) + 1;
-      if (newFails >= 3) {
-        setLockInfo({ fails: newFails, until: Date.now() + 30000 });
-        setMsg({ kind: 'err', text: 'ТЕРМИНАЛ ЗАБЛОКИРОВАН НА 30 СЕК' });
-      } else {
-        setLockInfo({ fails: newFails, until: 0 });
-        setMsg({ kind: guestPwResult.kind || 'err', text: guestPwResult.text + ' · ПОПЫТКА ' + newFails + '/3' });
-      }
-      setPw('');
-    }
-    if (onGuestResultConsumed) onGuestResultConsumed();
-  }, [guestPwResult]);
-
   const submit = async (e) => {
     if (e) e.preventDefault();
     if (!inputAllowed) return;
     if (checking || isLocked) return;
     if (!pw.trim()) return;
-
-    // Гостевая ветвь: отправляем хосту, ждём password-result
-    if (guestMode) {
-      setChecking(true);
-      SCPAudio.beep(440, 0.05);
-      setMsg(null);
-      onGuestSubmit(pw.trim());
-      return;
-    }
 
     setChecking(true);
     SCPAudio.beep(440, 0.05);
@@ -90,7 +56,6 @@ function PasswordScreen({
     if (hackBare.test(entered)) {
       setChecking(false);
       setPw('');
-      if (onPwChange) onPwChange('');
       SCPAudio.denied();
       setMsg({ kind: 'err', text: 'УКАЖИТЕ HOSTNAME ЦЕЛИ: /hack [hostname]' });
       return;
@@ -99,7 +64,6 @@ function PasswordScreen({
     if (hackMatch) {
       setChecking(false);
       setPw('');
-      if (onPwChange) onPwChange('');
       if (!state.virusDiskReady) {
         SCPAudio.denied();
         setMsg({ kind: 'err', text: 'ВИРУС-ДИСКЕТА НЕ ОБНАРУЖЕНА' });
@@ -160,7 +124,6 @@ function PasswordScreen({
       setMsg({ kind: 'err', text: 'НЕВЕРНЫЙ ПАРОЛЬ. ПОПЫТКА ' + newFails + '/3' });
     }
     setPw('');
-    if (onPwChange) onPwChange('');
     setChecking(false);
   };
 
@@ -189,7 +152,6 @@ function PasswordScreen({
           if (hackHostCallbacks && hackHostCallbacks.onClose) hackHostCallbacks.onClose();
           if (r && r.pw) {
             setPw(r.pw);
-            if (onPwChange) onPwChange(r.pw);
             setTimeout(() => inputRef.current && inputRef.current.focus(), 50);
           }
         }}
@@ -245,24 +207,11 @@ function PasswordScreen({
           onChange={e => {
             setPw(e.target.value);
             if (e.target.value) SCPAudio.key();
-            if (onPwChange) onPwChange(e.target.value);
           }}
           placeholder={!canInput ? 'РЕЖИМ ЗРИТЕЛЯ' : (isLocked ? 'ЗАБЛОКИРОВАНО' : 'введите пароль')}
         />
         {!checking && inputAllowed && <span className="caret"></span>}
       </form>
-
-      {syncPwInput != null && (
-        <div className="mono" style={{marginTop: '0.4em', letterSpacing: '0.22em', fontSize: 20}}>
-          <span className="t-dim">{'RMT: '}</span>
-          {syncPwInput.length > 0
-            ? <span className="t-amber">{'●'.repeat(syncPwInput.length)}</span>
-            : <span className="t-dim" style={{opacity: 0.45}}>
-                {'[ожидание ввода]'}
-              </span>
-          }
-        </div>
-      )}
 
       {revealedTerms.length > 0 && (
         <button className="found-pw-btn" onClick={() => setFoundOpen(true)}>

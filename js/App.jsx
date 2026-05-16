@@ -1,4 +1,5 @@
-// Корневое приложение
+// Корневое приложение. Game state — Firestore (через SCPFirestore).
+// PeerJS остаётся только для cursors (см. session.js).
 const { useState: _useState, useEffect: _useEffect, useCallback: _useCallback, useRef: _useRef, useMemo: _useMemo } = React;
 
 const DEFAULT_TWEAKS = /*EDITMODE-BEGIN*/{
@@ -17,53 +18,86 @@ function loadTweaks() {
     const raw = localStorage.getItem(LS_TWEAKS);
     if (raw) {
       const parsed = JSON.parse(raw);
-      delete parsed.hum; // устарелое поле
+      delete parsed.hum;
       return { ...DEFAULT_TWEAKS, ...parsed };
     }
   } catch (e) {}
   return { ...DEFAULT_TWEAKS };
 }
 
-// Админ-маршрут: ?admin=1 — минует мультиплеер и открывает AdminPanel напрямую.
+// Админ-маршрут: ?admin=1 — открывает AdminPanel напрямую.
+// В новой архитектуре админ ТАКЖЕ подключён к Firestore (правки идут туда же,
+// что и у хоста); просто UI у него другой и поверх — без боевого терминала.
 const IS_ADMIN_ROUTE = new URLSearchParams(location.search).get('admin') === '1';
-const IS_ADMIN_OPEN  = IS_ADMIN_ROUTE; // всегда открываем без пароля
+const IS_ADMIN_OPEN  = IS_ADMIN_ROUTE;
+
+// === Firestore-хук: подписка на /sessions/{sessionId} ===
+function useFirestoreSession() {
+  const sessionId = _useMemo(() => SCPFirestore.getSessionId(), []);
+  const myPeerId  = _useMemo(() => SCPFirestore.getMyPeerId(), []);
+  const [data, setData] = _useState(null);
+  const [loading, setLoading] = _useState(true);
+
+  _useEffect(() => {
+    let active = true;
+    let unsub = null;
+    (async () => {
+      try {
+        // Если документа ещё нет — создаём из seed, claim себя как controlOwner.
+        await SCPFirestore.bootstrapIfMissing(sessionId, () => {
+          const seed = JSON.parse(JSON.stringify(window.SCP_SEED || {}));
+          return {
+            ...seed,
+            controlOwner: myPeerId,
+            stage: 'boot',
+            currentTermId: null,
+            nav: null,
+            hackGame: null,
+            participants: {},
+            lastForceReload: 0,
+          };
+        });
+      } catch (e) { console.warn('bootstrap error', e); }
+      if (!active) return;
+      unsub = SCPFirestore.subscribeSession(sessionId, (d) => {
+        setData(d);
+        setLoading(false);
+      });
+    })();
+    return () => { active = false; if (unsub) unsub(); };
+  }, [sessionId, myPeerId]);
+
+  const update = _useCallback((patch) => {
+    return SCPFirestore.updateSession(sessionId, patch);
+  }, [sessionId]);
+
+  const claim = _useCallback(() => {
+    return SCPFirestore.claimControl(sessionId, myPeerId);
+  }, [sessionId, myPeerId]);
+
+  const isHost = !!(data && data.controlOwner === myPeerId);
+
+  return { data, loading, update, claim, isHost, myPeerId, sessionId };
+}
 
 function App() {
-  // stage: boot | login | terminal | admin | adminLogin
-  const [stage, setStage] = _useState(IS_ADMIN_OPEN ? 'admin' : IS_ADMIN_ROUTE ? 'adminLogin' : 'boot');
-  const [state, setState] = useStore();
-  const [currentTermId, setCurrentTermId] = _useState(null);
+  // Firestore session
+  const { data, loading, update, claim, isHost, myPeerId, sessionId } = useFirestoreSession();
+
+  // Локальный UI (твики, edit mode, lock-counter, preview из админки)
   const [tweaks, setTweaksRaw] = _useState(loadTweaks);
   const [editMode, setEditMode] = _useState(false);
   const [lockInfo, setLockInfo] = _useState({ fails: 0, until: 0 });
   const [previewFromAdmin, setPreviewFromAdmin] = _useState(null);
-
-  // Session (мультиплеер) — не инициализируется в админ-режиме
-  const [sessionRole, setSessionRole] = _useState('init'); // 'init' | 'host' | 'viewer' | 'offline'
-  const [sessionStatus, setSessionStatus] = _useState('init');
-  const [peers, setPeers] = _useState([]);
-  const [cursors, setCursors] = _useState([]);
-  const [remoteNav, setRemoteNav] = _useState(null); // зритель: nav от хоста
-
-  // Hack game state — synced between host and viewers
-  const [hackOpen, setHackOpen] = _useState(false);
-  const [hackDone, setHackDone] = _useState(false);
-  const [hackReward, setHackReward] = _useState(null);
-  const [hackPuzzleType, setHackPuzzleType] = _useState(null);
-  const [hackSnapshot, setHackSnapshot] = _useState(null);
-  const [pwInput, setPwInput] = _useState('');
-
-  // Поля из game-state, которые нужны зрителям (транслируются отдельно от localStorage).
-  // Сами terminals (с паролями, файлами, hintNotes) — это lastSharedTerminals.
-  const [sharedTerminals, setSharedTerminals] = _useState(null);
-  const [sharedMasterPassword, setSharedMasterPassword] = _useState('');
-  const [sharedVirusDisk, setSharedVirusDisk] = _useState(false);
-  const [sharedHackTargetId, setSharedHackTargetId] = _useState(null);
-  const [sharedRevealedHints, setSharedRevealedHints] = _useState([]);
-  // Результат гостевой попытки пароля (приходит от хоста)
-  const [guestPwResult, setGuestPwResult] = _useState(null);
-  // Preview-терминал из админки (отдельно, чтобы переопределить вычисленный currentTerm)
   const [previewTermObj, setPreviewTermObj] = _useState(null);
+
+  // Локальное состояние админ-входа (?admin=1 route)
+  const [adminStage, setAdminStage] = _useState(IS_ADMIN_OPEN ? 'admin' : (IS_ADMIN_ROUTE ? 'adminLogin' : null));
+
+  // PeerJS-состояние (cursors only)
+  const [cursors, setCursors] = _useState([]);
+  const [peers, setPeers] = _useState([]);
+  const [peerSelf, setPeerSelf] = _useState(null);
 
   const setTweaks = (patch) => {
     setTweaksRaw(t => {
@@ -74,7 +108,7 @@ function App() {
     });
   };
 
-  // Применение CSS-переменных + звук
+  // CSS-переменные + звук
   _useEffect(() => {
     const r = document.documentElement.style;
     r.setProperty('--scanline-intensity', String(tweaks.scanlines));
@@ -107,173 +141,42 @@ function App() {
     return () => window.removeEventListener('message', handler);
   }, []);
 
-  const stateRef = _useRef(state);
-  _useEffect(() => { stateRef.current = state; }, [state]);
-
-  // === BROADCAST CHANNEL — принудительная перезагрузка + мгновенный синк полей админки ===
+  // === SESSION INIT (PeerJS только для cursors) ===
   _useEffect(() => {
-    if (IS_ADMIN_ROUTE) return;
-    let bc;
-    try {
-      bc = new BroadcastChannel('scp_admin');
-      bc.onmessage = (e) => {
-        if (!e.data) return;
-        if (e.data.type === 'force_reload') {
-          // BroadcastChannel доходит только до вкладок этого браузера — а удалённые
-          // юзеры подключены по PeerJS. Если мы хост, пересылаем команду в сеть.
-          try { if (SCPSession.broadcastReload) SCPSession.broadcastReload(); } catch (_) {}
-          // sessionStorage уже хранит роль (host/viewer) — при перезагрузке восстановится
-          setTimeout(() => window.location.reload(), 250);
-        } else if (e.data.type === 'admin_field_update') {
-          // Мгновенный патч полей, управляемых админкой (мимо storage event,
-          // который иногда не успевает прокинуться при быстром переключении вкладок).
-          setState(s => {
-            const next = { ...s };
-            if ('virusDiskReady' in e.data) next.virusDiskReady = !!e.data.virusDiskReady;
-            if ('hackTargetTerminalId' in e.data) next.hackTargetTerminalId = e.data.hackTargetTerminalId || null;
-            return next;
-          });
-        }
-      };
-    } catch (e) {}
-    return () => { try { if (bc) bc.close(); } catch (e) {} };
-  }, [setState]);
-
-  // === SESSION INIT ===
-  _useEffect(() => {
-    if (IS_ADMIN_ROUTE) { SCPSession.disable(); setSessionRole('offline'); setSessionStatus('admin'); return; }
+    if (IS_ADMIN_ROUTE) { SCPSession.disable(); return; }
     SCPSession.init({
-      onRole: (role) => setSessionRole(role),
-      onStatus: (s) => setSessionStatus(s),
-      onPeers: (list) => setPeers(list),
       onCursors: (list) => setCursors(list),
-      // Гость попробовал ввести пароль — хост валидирует и шлёт ответ.
-      onPasswordAttempt: ({ senderId, value }) => {
-        const entered = (value || '').trim().toLowerCase();
-        if (!entered) return;
-        const cur = stateRef.current;
-        // /hack у гостей не поддерживаем — это инициатива хоста
-        if (/^(?:\/hack|\/взлом)/i.test(entered)) {
-          SCPSession.sendToPeer(senderId, { type: 'password-result', ok: false, kind: 'err', text: 'ХАК-КОМАНДА — ТОЛЬКО У ХОСТА' });
-          return;
-        }
-        // Мастер-пароль открывает локальную админку — гостю недоступно
-        if (entered === (cur.masterPassword || '').toLowerCase()) {
-          SCPSession.sendToPeer(senderId, { type: 'password-result', ok: false, kind: 'err', text: 'МАСТЕР-ДОСТУП ЗАПРЕЩЁН ЗРИТЕЛЯМ' });
-          SCPStorage.appendLog({ type: 'master-unlock', from: senderId, password: '[MASTER]', ok: false });
-          return;
-        }
-        const term = (cur.terminals || []).find(t => t.password.toLowerCase() === entered);
-        if (term) {
-          SCPStorage.appendLog({ type: 'login', from: senderId, terminal: term.id, password: entered, ok: true });
-          SCPSession.sendToPeer(senderId, { type: 'password-result', ok: true, kind: 'ok', text: 'ДОСТУП РАЗРЕШЁН // ' + term.name });
-          // Логиним у хоста — stage/currentTermId уйдут к гостям через broadcastState
-          setCurrentTermId(term.id);
-          setStage('terminal');
-          setRemoteNav({ view: 'folders', folderIdx: 0, fileIdx: 0 });
-          setLockInfo({ fails: 0, until: 0 });
-        } else {
-          SCPStorage.appendLog({ type: 'login', from: senderId, password: entered, ok: false });
-          SCPSession.sendToPeer(senderId, { type: 'password-result', ok: false, kind: 'err', text: 'НЕВЕРНЫЙ ПАРОЛЬ' });
-        }
-      },
-      // Ответ хоста на нашу (гостевую) попытку
-      onPasswordResult: (r) => setGuestPwResult(r),
-      // Терминалы + админ-конфиг от хоста (источник истины для зрителей)
-      onTerminals: (payload) => {
-        if (!payload) return;
-        if (payload.terminals !== undefined) setSharedTerminals(payload.terminals || []);
-        if (payload.masterPassword !== undefined) setSharedMasterPassword(payload.masterPassword || '');
-        if (payload.virusDiskReady !== undefined) setSharedVirusDisk(!!payload.virusDiskReady);
-        if (payload.hackTargetTerminalId !== undefined) setSharedHackTargetId(payload.hackTargetTerminalId || null);
-        if (payload.revealedHints !== undefined) setSharedRevealedHints(payload.revealedHints || []);
-      },
-      onState: (shared) => {
-        if (!shared) return;
-        if (shared.stage) setStage(shared.stage);
-        if (shared.currentTermId !== undefined) setCurrentTermId(shared.currentTermId);
-        if (shared.nav) setRemoteNav(shared.nav);
-        if (shared.pwInput          !== undefined) setPwInput(shared.pwInput);
-        if (shared.hackOpen         !== undefined) setHackOpen(shared.hackOpen);
-        if (shared.hackDone         !== undefined) setHackDone(shared.hackDone);
-        if (shared.hackReward       !== undefined) setHackReward(shared.hackReward);
-        if (shared.hackPuzzleType   !== undefined) setHackPuzzleType(shared.hackPuzzleType);
-        if (shared.hackSnapshot     !== undefined) setHackSnapshot(shared.hackSnapshot);
-      },
+      onPeers:   (list) => setPeers(list),
+      onSelf:    (s)    => setPeerSelf(s),
     });
   }, []);
 
-  const isHost = sessionRole === 'host' || sessionRole === 'offline';
-  const isViewer = sessionRole === 'viewer';
-
-  // Зритель: источник истины — sharedTerminals (от хоста), не локальный localStorage.
-  // Локальный state остаётся как кэш UI/твики, но пароли/файлы/имена/мастер берём от хоста.
-  const effectiveState = _useMemo(() => {
-    if (!isViewer) return state;
-    const baseTerminals = sharedTerminals || [];
-    const hintMap = new Map((sharedRevealedHints || []).map(h => [h.id, h.notes || '']));
-    const terminals = baseTerminals.map(t => {
-      if (hintMap.has(t.id)) return { ...t, hintRevealed: true, hintNotes: hintMap.get(t.id) };
-      return { ...t, hintRevealed: false, hintNotes: '' };
-    });
-    return {
-      ...state,
-      terminals,
-      masterPassword: sharedMasterPassword || '',
-      virusDiskReady: sharedVirusDisk,
-      hackTargetTerminalId: sharedHackTargetId,
+  // === Регистрация себя в participants + heartbeat + cleanup при закрытии ===
+  _useEffect(() => {
+    if (IS_ADMIN_ROUTE) return;
+    if (!data) return; // ждём первый snapshot
+    const name = peerSelf && peerSelf.name ? peerSelf.name : 'NODE-???';
+    const color = peerSelf && peerSelf.color ? peerSelf.color : '#88ffcc';
+    SCPFirestore.upsertParticipant(sessionId, myPeerId, { name, color });
+    const id = setInterval(() => {
+      SCPFirestore.upsertParticipant(sessionId, myPeerId, { name, color });
+    }, 30000);
+    // При закрытии вкладки удаляем себя из participants — иначе доку обрастает мусором
+    const onBeforeUnload = () => {
+      try {
+        const patch = {};
+        patch['participants.' + myPeerId] = SCPFirestore.deleteField();
+        SCPFirestore.updateSession(sessionId, patch);
+      } catch (e) {}
     };
-  }, [state, isViewer, sharedTerminals, sharedMasterPassword, sharedVirusDisk, sharedHackTargetId, sharedRevealedHints]);
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => {
+      clearInterval(id);
+      window.removeEventListener('beforeunload', onBeforeUnload);
+    };
+  }, [data && !!data.controlOwner, sessionId, myPeerId, peerSelf && peerSelf.name, peerSelf && peerSelf.color]);
 
-  // currentTerm вычисляем из id и актуального списка (свой для хоста, shared для зрителя).
-  // previewTermObj перекрывает (preview только в админ-режиме).
-  const currentTerm = _useMemo(() => {
-    if (previewTermObj) return previewTermObj;
-    if (!currentTermId) return null;
-    const list = (isViewer ? sharedTerminals : state.terminals) || [];
-    return list.find(x => x.id === currentTermId) || null;
-  }, [previewTermObj, currentTermId, isViewer, sharedTerminals, state.terminals]);
-
-  // Хост бродкастит стейт
-  const revealedHintsKey = _useMemo(() => (state.terminals || [])
-    .filter(t => t.hintRevealed)
-    .map(t => t.id + ':' + (t.hintNotes || ''))
-    .join('|'), [state.terminals]);
-
-  // UI-стейт: stage / current terminal / nav / pwInput / hack-game. Шлём часто.
-  _useEffect(() => {
-    if (IS_ADMIN_ROUTE) return;
-    if (sessionRole !== 'host') return;
-    SCPSession.broadcastState({
-      stage,
-      currentTermId: currentTermId,
-      nav: remoteNav,
-      hackOpen,
-      hackDone,
-      hackReward,
-      hackPuzzleType,
-      hackSnapshot,
-      pwInput,
-    });
-  }, [sessionRole, stage, currentTermId, remoteNav && remoteNav.view, remoteNav && remoteNav.folderIdx, remoteNav && remoteNav.fileIdx, hackOpen, hackDone, hackReward, hackPuzzleType, hackSnapshot, pwInput]);
-
-  // Терминалы + админ-конфиг: источник истины для зрителей. Шлём реже, при изменениях.
-  _useEffect(() => {
-    if (IS_ADMIN_ROUTE) return;
-    if (sessionRole !== 'host') return;
-    const revealedHints = (state.terminals || [])
-      .filter(t => t.hintRevealed)
-      .map(t => ({ id: t.id, notes: t.hintNotes || '' }));
-    SCPSession.broadcastTerminals({
-      terminals: state.terminals || [],
-      masterPassword: state.masterPassword || '',
-      virusDiskReady: !!state.virusDiskReady,
-      hackTargetTerminalId: state.hackTargetTerminalId || null,
-      revealedHints,
-    });
-  }, [sessionRole, state.terminals, state.masterPassword, state.virusDiskReady, state.hackTargetTerminalId, revealedHintsKey]);
-
-  // Трекинг курсора
+  // === Трекинг курсора (PeerJS) ===
   _useEffect(() => {
     if (IS_ADMIN_ROUTE) return;
     const onMove = (e) => {
@@ -285,62 +188,156 @@ function App() {
     return () => window.removeEventListener('mousemove', onMove);
   }, []);
 
+  // === Force-reload watcher: админ может запросить общий reload через Firestore ===
+  const lastForceReloadRef = _useRef(null);
+  _useEffect(() => {
+    if (!data) return;
+    if (lastForceReloadRef.current === null) {
+      lastForceReloadRef.current = data.lastForceReload || 0;
+      return;
+    }
+    const cur = data.lastForceReload || 0;
+    if (cur && cur !== lastForceReloadRef.current) {
+      lastForceReloadRef.current = cur;
+      if (!IS_ADMIN_ROUTE) {
+        setTimeout(() => { try { window.location.reload(); } catch (e) {} }, 200);
+      }
+    }
+  }, [data && data.lastForceReload]);
+
+  // === Управление stage / nav / hackGame для хоста — обёртки над update() ===
+  // Зритель, присоединившийся пока хост ещё в boot, не должен застревать на BootScreen
+  // (его onDone ничего не сделает у не-хоста). Сразу показываем 'login' как ожидание.
+  const _stageRaw = (IS_ADMIN_ROUTE && adminStage) ? adminStage : (data ? (data.stage || 'boot') : 'boot');
+  const isHostFlag = !!(data && data.controlOwner && data.controlOwner === SCPFirestore.getMyPeerId());
+  const stage = (_stageRaw === 'boot' && !isHostFlag && !IS_ADMIN_ROUTE) ? 'login' : _stageRaw;
+  const currentTermId = data ? (data.currentTermId || null) : null;
+  const nav = data ? (data.nav || null) : null;
+  const hackGame = data ? (data.hackGame || null) : null;
+  const isViewer = !!(data && !isHost && !IS_ADMIN_ROUTE);
+
+  const setStage = (s) => {
+    if (IS_ADMIN_ROUTE) { setAdminStage(s); return; }
+    if (!isHost) return;
+    update({ stage: s });
+  };
+  const setCurrentTermId = (id) => { if (isHost) update({ currentTermId: id }); };
+  const setNav = (n) => { if (isHost) update({ nav: n }); };
+
+  // currentTerm с учётом preview из админки
+  const currentTerm = _useMemo(() => {
+    if (previewTermObj) return previewTermObj;
+    if (!currentTermId) return null;
+    const list = (data && data.terminals) || [];
+    return list.find(x => x.id === currentTermId) || null;
+  }, [previewTermObj, currentTermId, data && data.terminals]);
+
+  // === Обработчики UI ===
   const handleLogin = (term) => {
-    setCurrentTermId(term.id);
-    setStage('terminal');
-    setRemoteNav({ view: 'folders', folderIdx: 0, fileIdx: 0 });
+    if (!isHost) return;
+    update({
+      stage: 'terminal',
+      currentTermId: term.id,
+      nav: { view: 'folders', folderIdx: 0, fileIdx: 0 },
+    });
     setLockInfo({ fails: 0, until: 0 });
   };
   const handleMasterUnlock = () => {
-    setStage('admin');
+    if (IS_ADMIN_ROUTE) { setAdminStage('admin'); }
+    else if (isHost) { update({ stage: 'admin' }); }
     setLockInfo({ fails: 0, until: 0 });
   };
   const exitTerminal = () => {
-    setCurrentTermId(null);
-    setStage('login');
+    if (!isHost) return;
+    update({ stage: 'login', currentTermId: null });
   };
   const exitAdmin = () => {
-    if (previewFromAdmin) { setPreviewFromAdmin(null); setPreviewTermObj(null); setStage('admin'); return; }
-    if (IS_ADMIN_ROUTE) { setStage('adminLogin'); return; }
-    setStage('login');
+    if (previewFromAdmin) {
+      setPreviewFromAdmin(null);
+      setPreviewTermObj(null);
+      if (IS_ADMIN_ROUTE) setAdminStage('admin');
+      else if (isHost) update({ stage: 'admin' });
+      return;
+    }
+    if (IS_ADMIN_ROUTE) { setAdminStage('adminLogin'); return; }
+    if (isHost) update({ stage: 'login' });
   };
-  const previewTerm = (t) => { setPreviewTermObj(t); setPreviewFromAdmin(t); setStage('terminal'); };
-  const exitPreview = () => { setPreviewTermObj(null); setPreviewFromAdmin(null); setStage('admin'); };
+  const previewTerm = (t) => {
+    setPreviewTermObj(t); setPreviewFromAdmin(t);
+    if (IS_ADMIN_ROUTE) setAdminStage('terminal');
+    else if (isHost) update({ stage: 'terminal' });
+  };
 
-  const onHostNav = _useCallback((nav) => {
-    setRemoteNav(nav);
-  }, []);
-
-  // Hack game callbacks — only called by host, update state to broadcast to viewers
-  const hackHostCallbacks = (isHost && !isViewer) ? {
-    onOpen: () => {
-      setHackOpen(true);
-      setHackDone(false);
-      setHackReward(null);
-      setHackSnapshot(null);
-      setHackPuzzleType(null);
-    },
-    onClose: () => {
-      setHackOpen(false);
-    },
-    onDone: (reward) => {
-      setHackDone(true);
-      setHackReward(reward);
-    },
+  // === Hack callbacks (только хост, пишут в Firestore) ===
+  const hackHostCallbacks = isHost ? {
+    onOpen: () => update({ hackGame: { open: true, done: false, reward: null, puzzleType: null } }),
+    onClose: () => update({ hackGame: { open: false, done: false, reward: null, puzzleType: null } }),
+    onDone: (reward) => update({ hackGame: { open: true, done: true, reward: reward || null, puzzleType: (hackGame && hackGame.puzzleType) || null } }),
     onSnapshot: (snap) => {
-      if (snap && snap.puzzleType) setHackPuzzleType(snap.puzzleType);
-      setHackSnapshot(snap ? snap.puzzleState : null);
+      // Snapshot высокочастотен — НЕ пишем в Firestore. Сохраняем только тип puzzle при первом snap.
+      if (snap && snap.puzzleType && hackGame && hackGame.puzzleType !== snap.puzzleType) {
+        update({ hackGame: { ...(hackGame || {}), puzzleType: snap.puzzleType } });
+      }
     },
   } : null;
 
-  // Hack view state — passed to viewers to display host's hack game
-  const hackViewState = isViewer ? {
-    open: hackOpen,
-    done: hackDone,
-    reward: hackReward,
-    puzzleType: hackPuzzleType,
-    snapshot: hackSnapshot,
+  const hackViewState = (!isHost && hackGame) ? {
+    open: !!hackGame.open,
+    done: !!hackGame.done,
+    reward: hackGame.reward || null,
+    puzzleType: hackGame.puzzleType || null,
+    snapshot: null, // высокочастотный snapshot не синкаем — pragmatic compromise
   } : null;
+
+  // === Render ===
+  // Загрузочный экран пока ждём первый snapshot Firestore
+  if (!data && !IS_ADMIN_ROUTE) {
+    return (
+      <div className="crt-screen">
+        <div className="crt-bloom"></div>
+        <div className="crt-roll"></div>
+        <div className="crt-noise"></div>
+        <div className="crt-scanlines"></div>
+        <div className="crt-content">
+          <div className="col" style={{height: '100%', justifyContent: 'center', alignItems: 'center'}}>
+            <div className="mono t-dim">СОЕДИНЕНИЕ С СЕРВЕРОМ...</div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Для AdminPanel и PasswordScreen state-форма должна быть совместима со старым кодом
+  const stateView = data || (window.SCP_SEED || {});
+  // setState-совместимая обёртка для AdminPanel: принимает либо patch-объект,
+  // либо updater(prev). Чтобы не затирать participants/controlOwner/updatedAt,
+  // которые могли быть обновлены другими клиентами с момента последнего snapshot,
+  // отправляем в Firestore только те top-level поля, чьи ссылки реально изменились.
+  const SAFE_FIELDS = ['terminals', 'masterPassword', 'virusDiskReady', 'hackTargetTerminalId', 'hackPuzzleType', 'meta', 'staff', 'stage', 'currentTermId', 'nav', 'hackGame', 'lastForceReload', 'version'];
+  const setStateForAdmin = (next) => {
+    let result;
+    if (typeof next === 'function') {
+      result = next(stateView);
+    } else {
+      result = next;
+    }
+    if (!result) return;
+    const patch = {};
+    if (typeof next === 'function') {
+      // Updater вернул "следующий полный state" — сравниваем по ссылкам.
+      SAFE_FIELDS.forEach(k => {
+        if (k in result && result[k] !== stateView[k]) patch[k] = result[k];
+      });
+    } else {
+      // Это уже частичный patch.
+      Object.keys(result).forEach(k => {
+        if (k === 'updatedAt' || k === 'controlOwner' || k === 'participants') return;
+        patch[k] = result[k];
+      });
+    }
+    if (Object.keys(patch).length === 0) return;
+    update(patch);
+  };
 
   return (
     <>
@@ -352,63 +349,72 @@ function App() {
         <div className="crt-scanlines"></div>
 
         <div className="crt-content">
-          {stage === 'boot' && <BootScreen onDone={() => setStage('login')} />}
+          {stage === 'boot' && <BootScreen onDone={() => { if (isHost) update({ stage: 'login' }); }} />}
 
           {stage === 'adminLogin' && (
             <AdminLoginScreen
-              state={state}
+              state={stateView}
               onMasterUnlock={handleMasterUnlock}
             />
           )}
 
           {stage === 'login' && (
             <PasswordScreen
-              state={effectiveState}
+              state={stateView}
               onLogin={handleLogin}
               onMasterUnlock={handleMasterUnlock}
               lockInfo={lockInfo}
               setLockInfo={setLockInfo}
-              canInput={isHost && !isViewer}
-              onPwChange={isHost && !isViewer ? setPwInput : null}
-              syncPwInput={isViewer ? pwInput : null}
+              canInput={isHost}
               hackHostCallbacks={hackHostCallbacks}
               hackViewState={hackViewState}
-              onGuestSubmit={isViewer ? (value => { setGuestPwResult(null); SCPSession.sendPasswordAttempt(value); }) : null}
-              guestPwResult={isViewer ? guestPwResult : null}
-              onGuestResultConsumed={isViewer ? (() => setGuestPwResult(null)) : null}
             />
           )}
 
           {stage === 'terminal' && currentTerm && (
             <TerminalBrowser
               terminal={currentTerm}
-              state={effectiveState}
-              onExit={previewFromAdmin ? exitPreview : exitTerminal}
-              readOnly={isViewer}
-              syncNav={isViewer ? remoteNav : null}
-              onNav={!isViewer ? onHostNav : null}
+              state={stateView}
+              onExit={previewFromAdmin ? () => { setPreviewTermObj(null); setPreviewFromAdmin(null); if (IS_ADMIN_ROUTE) setAdminStage('admin'); else if (isHost) update({ stage: 'admin' }); } : exitTerminal}
+              readOnly={!isHost}
+              syncNav={!isHost ? nav : null}
+              onNav={isHost ? ((n) => update({ nav: n })) : null}
             />
           )}
         </div>
 
-        {/* Курсоры других пиров */}
         {!IS_ADMIN_ROUTE && <CursorOverlay cursors={cursors} />}
       </div>
 
       {stage === 'admin' && (
         <AdminPanel
-          state={state}
-          setState={setState}
+          state={stateView}
+          setState={setStateForAdmin}
           onExit={exitAdmin}
           onPreview={previewTerm}
         />
       )}
 
-      {!IS_ADMIN_ROUTE && isHost && !isViewer && (
-        <ControlTransferBtn peers={peers} selfId={SCPSession.selfId} />
+      {!IS_ADMIN_ROUTE && isHost && (
+        <ControlTransferBtn
+          participants={(data && data.participants) || {}}
+          myPeerId={myPeerId}
+          onTransfer={(targetId) => update({ controlOwner: targetId })}
+        />
       )}
 
-      {!IS_ADMIN_ROUTE && <SessionBadge role={sessionRole} status={sessionStatus} peers={peers} />}
+      {!IS_ADMIN_ROUTE && (
+        <SessionBadge
+          isHost={isHost}
+          isViewer={isViewer}
+          participants={(data && data.participants) || {}}
+          peerSelf={peerSelf}
+        />
+      )}
+
+      {!IS_ADMIN_ROUTE && !isHost && data && (
+        <ClaimControlBtn onClaim={claim} />
+      )}
 
       {<TweaksPanel tweaks={tweaks} setTweaks={setTweaks} />}
     </>
@@ -436,8 +442,8 @@ function CursorOverlay({ cursors }) {
   );
 }
 
-// === Кнопка передачи контроля ===
-function ControlTransferBtn({ peers, selfId }) {
+// === Кнопка передачи контроля — список из participants Firestore ===
+function ControlTransferBtn({ participants, myPeerId, onTransfer }) {
   const [open, setOpen] = _useState(false);
   const wrapRef = _useRef(null);
 
@@ -450,13 +456,18 @@ function ControlTransferBtn({ peers, selfId }) {
     return () => document.removeEventListener('mousedown', handler);
   }, [open]);
 
-  // Only show viewers (exclude self)
-  const viewers = (selfId ? peers.filter(p => p.id !== selfId) : []);
-  if (viewers.length === 0) return null;
+  // Активные participants — lastSeen свежее 60с, кроме нас самих
+  const now = Date.now();
+  const others = Object.keys(participants || {})
+    .filter(id => id !== myPeerId)
+    .map(id => ({ id, ...(participants[id] || {}) }))
+    .filter(p => (now - (p.lastSeen || 0)) < 60000);
+
+  if (others.length === 0) return null;
 
   const transfer = (id) => {
     setOpen(false);
-    SCPSession.transferControl(id);
+    onTransfer(id);
   };
 
   return (
@@ -469,10 +480,10 @@ function ControlTransferBtn({ peers, selfId }) {
           <div className="mono t-dim" style={{fontSize: 11, padding: '4px 8px', borderBottom: '1px solid var(--phosphor-dim)'}}>
             { 'Выберите нового хоста:' }
           </div>
-          {viewers.map(v => (
+          {others.map(v => (
             <button key={v.id} className="control-transfer-item" onClick={() => transfer(v.id)}
-              style={{color: v.color}}>
-              {v.name}
+              style={{color: v.color || '#fff'}}>
+              {v.name || v.id.slice(0, 10)}
             </button>
           ))}
         </div>
@@ -481,19 +492,31 @@ function ControlTransferBtn({ peers, selfId }) {
   );
 }
 
+// === Кнопка для зрителей: "забрать контроль" (на случай если хост ушёл/завис) ===
+function ClaimControlBtn({ onClaim }) {
+  return (
+    <button className="control-transfer-btn"
+      style={{position: 'fixed', bottom: 12, left: 12, zIndex: 10000, opacity: 0.7}}
+      onClick={onClaim}
+      title="Стать ведущим сессии">
+      {'⇪ ВЗЯТЬ КОНТРОЛЬ'}
+    </button>
+  );
+}
+
 // === Индикатор роли в сессии ===
-function SessionBadge({ role, status, peers }) {
+function SessionBadge({ isHost, isViewer, participants, peerSelf }) {
+  const now = Date.now();
+  const activeCount = Object.keys(participants || {})
+    .filter(id => (now - ((participants[id] || {}).lastSeen || 0)) < 60000).length;
+
   let text = '';
   let cls = '';
-  if (status === 'init' || status === 'connecting') { text = 'ПОДКЛЮЧЕНИЕ...'; cls = 'session-init'; }
-  else if (role === 'host') { text = 'КОНТРОЛЬ · ' + (peers.length) + ' уз'; cls = 'session-host'; }
-  else if (role === 'viewer') { text = 'ЗРИТЕЛЬ · ' + (peers.length) + ' уз'; cls = 'session-viewer'; }
-  else if (status === 'offline') { text = 'OFFLINE'; cls = 'session-offline'; }
-  else if (status === 'disconnected') { text = 'РАЗРЫВ'; cls = 'session-offline'; }
-  else return null;
+  if (isHost) { text = 'КОНТРОЛЬ · ' + activeCount + ' уз'; cls = 'session-host'; }
+  else if (isViewer) { text = 'ЗРИТЕЛЬ · ' + activeCount + ' уз'; cls = 'session-viewer'; }
+  else { text = 'ПОДКЛЮЧЕНИЕ...'; cls = 'session-init'; }
 
-  const self = SCPSession.selfName ? (' [' + SCPSession.selfName + ']') : '';
-  // Хвост roomId — два юзера в разных комнатах сразу увидят, что хвосты не совпадают
+  const self = peerSelf && peerSelf.name ? (' [' + peerSelf.name + ']') : '';
   const room = SCPSession.roomId ? (' · room ' + String(SCPSession.roomId).slice(-5)) : '';
   return <div className={'session-badge ' + cls}>{text}{self}{room}</div>;
 }
@@ -527,7 +550,7 @@ function AdminLoginScreen({ state, onMasterUnlock }) {
  ╚════════════════════════════════════════╝
 `}</pre>
       <div className="mono t-dim" style={{textAlign: 'center'}}>
-        { '> Служебный вход. Мультиплеер-сессия не активна.\n> Введите мастер-пароль.' }
+        { '> Служебный вход. Изменения админа уходят в общую сессию.\n> Введите мастер-пароль.' }
       </div>
       <form onSubmit={submit} className="input-line" style={{width: 'min(420px, 90vw)'}}>
         <span className="t-amber">MASTER:</span>
