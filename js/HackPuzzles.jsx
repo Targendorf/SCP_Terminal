@@ -269,6 +269,14 @@ function MemoryPuzzle({ onWin, onStateChange, readOnlySnapshot, initialSnapshot 
 // =====================================================================
 // 5. PIPE CONNECT — поворачивай сегменты, соедини вход с выходом
 // =====================================================================
+// Firestore запрещает массив массивов — board сериализуем как массив строк
+// (каждая строка = ряд чисел через запятую).
+function _pipeEncode(board) { return board.map(row => row.join(',')); }
+function _pipeDecode(arr) {
+  if (!arr) return null;
+  if (typeof arr[0] === 'string') return arr.map(s => s.split(',').map(Number));
+  return arr; // уже nested array (backward compat)
+}
 function PipePuzzle({ onWin, onStateChange, readOnlySnapshot, initialSnapshot }) {
   const W = 5, H = 4;
   const START = { x: 0, y: 1 };
@@ -284,11 +292,14 @@ function PipePuzzle({ onWin, onStateChange, readOnlySnapshot, initialSnapshot })
     }
     return b;
   };
-  const [board, setBoard] = React.useState(() => (initialSnapshot && initialSnapshot.board) || makeBoard());
+  const [board, setBoard] = React.useState(() => {
+    const init = initialSnapshot && _pipeDecode(initialSnapshot.board);
+    return init || makeBoard();
+  });
   const wonRef = React.useRef(false);
 
   React.useEffect(() => {
-    if (onStateChange) onStateChange({ board });
+    if (onStateChange) onStateChange({ board: _pipeEncode(board) });
   }, [board]);
 
   const rotate = (x, y) => {
@@ -302,7 +313,7 @@ function PipePuzzle({ onWin, onStateChange, readOnlySnapshot, initialSnapshot })
   };
 
   const connected = React.useMemo(() => {
-    const b = readOnlySnapshot ? (readOnlySnapshot.board || board) : board;
+    const b = readOnlySnapshot ? (_pipeDecode(readOnlySnapshot.board) || board) : board;
     const visited = new Set([START.x + ',' + START.y]);
     const q = [START];
     const D = [[0, -1, 1, 4], [1, 0, 2, 8], [0, 1, 4, 1], [-1, 0, 8, 2]];
@@ -327,7 +338,7 @@ function PipePuzzle({ onWin, onStateChange, readOnlySnapshot, initialSnapshot })
     if (connected && !wonRef.current && !readOnlySnapshot) { wonRef.current = true; onWin(); }
   }, [connected]);
 
-  const displayBoard = readOnlySnapshot ? (readOnlySnapshot.board || board) : board;
+  const displayBoard = readOnlySnapshot ? (_pipeDecode(readOnlySnapshot.board) || board) : board;
 
   return (
     <div className="pipe-box">

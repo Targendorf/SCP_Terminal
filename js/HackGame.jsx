@@ -138,14 +138,35 @@ function HackGame({ state, onSuccess, onCancel, onSnapshot, onDone, readOnly, vi
 // ======================================================================
 // 1. WORD SEARCH — поиск слов 15×15. Только → и ↓. Слова ≥ 4 букв.
 // ======================================================================
+// Firestore запрещает массив массивов. Сериализуем grid как массив строк
+// (каждая строка = ряд символов), currentCells — как массив "r,c" строк.
+function _wsEncodeGrid(grid) { return grid.map(row => row.join('')); }
+function _wsDecodeGrid(arr) {
+  if (!arr) return null;
+  if (typeof arr[0] === 'string') return arr.map(s => s.split(''));
+  return arr; // уже nested array (backward compat)
+}
+function _wsEncodeCells(cells) {
+  return (cells || []).map(c => Array.isArray(c) ? (c[0] + ',' + c[1]) : c);
+}
+function _wsDecodeCells(arr) {
+  if (!arr) return [];
+  return arr.map(c => {
+    if (Array.isArray(c)) return c;
+    const p = String(c).split(',');
+    return [parseInt(p[0], 10), parseInt(p[1], 10)];
+  });
+}
+
 function WordSearchPuzzle({ onWin, onStateChange, readOnlySnapshot, initialSnapshot }) {
   const SIZE = 15;
   const WORDS_RU = ['КЕТЕР','ЕВКЛИД','АНОМАЛ','СЕКТОР','ФОНД','ОБЪЕКТ','ПРОТОКОЛ','АРХИВ','ЗОНА','СЕКРЕТ','ДОСТУП','ПРОРЫВ','ПРИЗРАК','ВАКЦИНА','БАРЬЕР','СИГНАЛ','РАЗЛОМ','ЦИФРА','МОЛНИЯ','АГЕНТ','ГРУППА','ОХРАНА','МАРКЕР','ДОКЛАД','СКАНЕР','КОДОН','ГАММА','ОМЕГА','РЕАКТОР','МУТАНТ','ВИРУС','МАЯК','ПЕЩЕРА','СИЯНИЕ','ПОРТАЛ'];
 
   // Seed (grid + words) либо из initialSnapshot, либо генерим свой.
   const game = React.useMemo(() => {
-    if (initialSnapshot && initialSnapshot.grid && initialSnapshot.words) {
-      return { grid: initialSnapshot.grid, words: initialSnapshot.words };
+    const initGrid = initialSnapshot && _wsDecodeGrid(initialSnapshot.grid);
+    if (initGrid && initialSnapshot.words) {
+      return { grid: initGrid, words: initialSnapshot.words };
     }
     return makeGrid(SIZE, WORDS_RU);
   }, []);
@@ -169,11 +190,11 @@ function WordSearchPuzzle({ onWin, onStateChange, readOnlySnapshot, initialSnaps
   React.useEffect(() => {
     if (!onStateChange) return;
     onStateChange({
-      grid: game.grid,
+      grid: _wsEncodeGrid(game.grid),
       words: game.words,
       found,
       foundCells: Array.from(foundCellsMap),
-      currentCells: current ? current.cells : [],
+      currentCells: _wsEncodeCells(current ? current.cells : []),
     });
   }, [found, current, foundCellsMap, onStateChange]);
 
@@ -216,11 +237,11 @@ function WordSearchPuzzle({ onWin, onStateChange, readOnlySnapshot, initialSnaps
     setDragging(null); setCurrent(null);
   };
 
-  const roGrid       = (readOnlySnapshot && readOnlySnapshot.grid)  || game.grid;
+  const roGrid       = (readOnlySnapshot && _wsDecodeGrid(readOnlySnapshot.grid)) || game.grid;
   const roWords      = (readOnlySnapshot && readOnlySnapshot.words) || game.words;
   const roFound      = readOnlySnapshot ? (readOnlySnapshot.found || []) : found;
   const roFoundCells = readOnlySnapshot ? new Set(readOnlySnapshot.foundCells || []) : foundCellsMap;
-  const roCurrent    = readOnlySnapshot ? (readOnlySnapshot.currentCells || []) : (current ? current.cells : []);
+  const roCurrent    = readOnlySnapshot ? _wsDecodeCells(readOnlySnapshot.currentCells) : (current ? current.cells : []);
   const isInCurrent  = (r, c) => roCurrent.some(([rr, cc]) => rr === r && cc === c);
   const isFoundCell  = (r, c) => roFoundCells.has(r + ',' + c);
 
