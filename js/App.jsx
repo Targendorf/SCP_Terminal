@@ -548,7 +548,7 @@ function ControlTransferBtn({ participants, myPeerId, onTransfer }) {
 function ClaimControlBtn({ onClaim }) {
   return (
     <button className="control-transfer-btn"
-      style={{position: 'fixed', bottom: 12, left: 12, zIndex: 10000, opacity: 0.7}}
+      style={{position: 'fixed', bottom: 12, right: 12, zIndex: 460, opacity: 0.75, width: 'auto'}}
       onClick={onClaim}
       title="Стать ведущим сессии">
       {'⇪ ВЗЯТЬ КОНТРОЛЬ'}
