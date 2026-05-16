@@ -42,13 +42,15 @@ function HackGame({ state, onSuccess, onCancel, onSnapshot, onDone, readOnly, vi
   const effectiveReward = (readOnly && viewState) ? (viewState.reward || null)  : reward;
   const effectiveSnap   = (readOnly && viewState) ? (viewState.snapshot || null) : null;
 
+  // Каждый <script type="text/babel"> компилируется в своём scope, поэтому
+  // паззлы из HackPuzzles.jsx доступны только через window.*
   const PUZZLES = {
     wordsearch: WordSearchPuzzle,
-    sequence:   SequencePuzzle,
-    cipher:     CipherPuzzle,
-    memory:     MemoryPuzzle,
-    pipe:       PipePuzzle,
-    typer:      TyperPuzzle,
+    sequence:   window.SequencePuzzle,
+    cipher:     window.CipherPuzzle,
+    memory:     window.MemoryPuzzle,
+    pipe:       window.PipePuzzle,
+    typer:      window.TyperPuzzle,
   };
   const Puzzle = PUZZLES[activePuzzleType] || WordSearchPuzzle;
 

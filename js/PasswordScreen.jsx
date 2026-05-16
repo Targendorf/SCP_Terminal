@@ -3,7 +3,11 @@ function PasswordScreen({
   state, onLogin, onMasterUnlock, lockInfo, setLockInfo, canInput = true,
   onPwChange, syncPwInput,
   hackHostCallbacks, hackViewState,
+  onGuestSubmit, guestPwResult, onGuestResultConsumed,
 }) {
+  // Зритель тоже может вводить — если ему дали канал отправки
+  const guestMode = !canInput && !!onGuestSubmit;
+  const inputAllowed = canInput || guestMode;
   const [pw, setPw] = useState('');
   const [checking, setChecking] = useState(false);
   const [msg, setMsg] = useState(null);
@@ -34,11 +38,44 @@ function PasswordScreen({
     wasLocked.current = isLocked;
   }, [isLocked]);
 
+  // Гостевой режим: пришёл ответ хоста на password-attempt
+  useEffect(() => {
+    if (!guestMode || !guestPwResult) return;
+    setChecking(false);
+    if (guestPwResult.ok) {
+      SCPAudio.granted();
+      setMsg({ kind: guestPwResult.kind || 'ok', text: guestPwResult.text });
+      // stage и currentTerm придут к нам через broadcastState — никаких onLogin локально
+    } else {
+      SCPAudio.denied();
+      const newFails = (lockInfo?.fails || 0) + 1;
+      if (newFails >= 3) {
+        setLockInfo({ fails: newFails, until: Date.now() + 30000 });
+        setMsg({ kind: 'err', text: 'ТЕРМИНАЛ ЗАБЛОКИРОВАН НА 30 СЕК' });
+      } else {
+        setLockInfo({ fails: newFails, until: 0 });
+        setMsg({ kind: guestPwResult.kind || 'err', text: guestPwResult.text + ' · ПОПЫТКА ' + newFails + '/3' });
+      }
+      setPw('');
+    }
+    if (onGuestResultConsumed) onGuestResultConsumed();
+  }, [guestPwResult]);
+
   const submit = async (e) => {
     if (e) e.preventDefault();
-    if (!canInput) return;
+    if (!inputAllowed) return;
     if (checking || isLocked) return;
     if (!pw.trim()) return;
+
+    // Гостевая ветвь: отправляем хосту, ждём password-result
+    if (guestMode) {
+      setChecking(true);
+      SCPAudio.beep(440, 0.05);
+      setMsg(null);
+      onGuestSubmit(pw.trim());
+      return;
+    }
+
     setChecking(true);
     SCPAudio.beep(440, 0.05);
 
@@ -205,15 +242,15 @@ function PasswordScreen({
           autoComplete="off"
           spellCheck="false"
           value={pw}
-          disabled={checking || isLocked || !canInput}
+          disabled={checking || isLocked || !inputAllowed}
           onChange={e => {
             setPw(e.target.value);
             if (e.target.value) SCPAudio.key();
             if (onPwChange) onPwChange(e.target.value);
           }}
-          placeholder={!canInput ? 'РЕЖИМ ЗРИТЕЛЯ' : (isLocked ? 'ЗАБЛОКИРОВАНО' : 'введите пароль')}
+          placeholder={!inputAllowed ? 'РЕЖИМ ЗРИТЕЛЯ' : (isLocked ? 'ЗАБЛОКИРОВАНО' : (guestMode ? 'пароль (отправится хосту)' : 'введите пароль'))}
         />
-        {!checking && canInput && <span className="caret"></span>}
+        {!checking && inputAllowed && <span className="caret"></span>}
       </form>
 
       {syncPwInput != null && (

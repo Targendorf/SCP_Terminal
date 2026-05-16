@@ -32,7 +32,7 @@ function App() {
   // stage: boot | login | terminal | admin | adminLogin
   const [stage, setStage] = _useState(IS_ADMIN_OPEN ? 'admin' : IS_ADMIN_ROUTE ? 'adminLogin' : 'boot');
   const [state, setState] = useStore();
-  const [currentTerm, setCurrentTerm] = _useState(null);
+  const [currentTermId, setCurrentTermId] = _useState(null);
   const [tweaks, setTweaksRaw] = _useState(loadTweaks);
   const [editMode, setEditMode] = _useState(false);
   const [lockInfo, setLockInfo] = _useState({ fails: 0, until: 0 });
@@ -53,11 +53,17 @@ function App() {
   const [hackSnapshot, setHackSnapshot] = _useState(null);
   const [pwInput, setPwInput] = _useState('');
 
-  // Поля из game-state, которые нужны зрителям (транслируются отдельно от localStorage)
+  // Поля из game-state, которые нужны зрителям (транслируются отдельно от localStorage).
+  // Сами terminals (с паролями, файлами, hintNotes) — это lastSharedTerminals.
+  const [sharedTerminals, setSharedTerminals] = _useState(null);
+  const [sharedMasterPassword, setSharedMasterPassword] = _useState('');
   const [sharedVirusDisk, setSharedVirusDisk] = _useState(false);
   const [sharedHackTargetId, setSharedHackTargetId] = _useState(null);
-  // Найденные пароли (hintRevealed/hintNotes) — список {id, notes}, транслируется хостом
   const [sharedRevealedHints, setSharedRevealedHints] = _useState([]);
+  // Результат гостевой попытки пароля (приходит от хоста)
+  const [guestPwResult, setGuestPwResult] = _useState(null);
+  // Preview-терминал из админки (отдельно, чтобы переопределить вычисленный currentTerm)
+  const [previewTermObj, setPreviewTermObj] = _useState(null);
 
   const setTweaks = (patch) => {
     setTweaksRaw(t => {
@@ -138,15 +144,51 @@ function App() {
       onStatus: (s) => setSessionStatus(s),
       onPeers: (list) => setPeers(list),
       onCursors: (list) => setCursors(list),
+      // Гость попробовал ввести пароль — хост валидирует и шлёт ответ.
+      onPasswordAttempt: ({ senderId, value }) => {
+        const entered = (value || '').trim().toLowerCase();
+        if (!entered) return;
+        const cur = stateRef.current;
+        // /hack у гостей не поддерживаем — это инициатива хоста
+        if (/^(?:\/hack|\/взлом)/i.test(entered)) {
+          SCPSession.sendToPeer(senderId, { type: 'password-result', ok: false, kind: 'err', text: 'ХАК-КОМАНДА — ТОЛЬКО У ХОСТА' });
+          return;
+        }
+        // Мастер-пароль открывает локальную админку — гостю недоступно
+        if (entered === (cur.masterPassword || '').toLowerCase()) {
+          SCPSession.sendToPeer(senderId, { type: 'password-result', ok: false, kind: 'err', text: 'МАСТЕР-ДОСТУП ЗАПРЕЩЁН ЗРИТЕЛЯМ' });
+          SCPStorage.appendLog({ type: 'master-unlock', from: senderId, password: '[MASTER]', ok: false });
+          return;
+        }
+        const term = (cur.terminals || []).find(t => t.password.toLowerCase() === entered);
+        if (term) {
+          SCPStorage.appendLog({ type: 'login', from: senderId, terminal: term.id, password: entered, ok: true });
+          SCPSession.sendToPeer(senderId, { type: 'password-result', ok: true, kind: 'ok', text: 'ДОСТУП РАЗРЕШЁН // ' + term.name });
+          // Логиним у хоста — stage/currentTermId уйдут к гостям через broadcastState
+          setCurrentTermId(term.id);
+          setStage('terminal');
+          setRemoteNav({ view: 'folders', folderIdx: 0, fileIdx: 0 });
+          setLockInfo({ fails: 0, until: 0 });
+        } else {
+          SCPStorage.appendLog({ type: 'login', from: senderId, password: entered, ok: false });
+          SCPSession.sendToPeer(senderId, { type: 'password-result', ok: false, kind: 'err', text: 'НЕВЕРНЫЙ ПАРОЛЬ' });
+        }
+      },
+      // Ответ хоста на нашу (гостевую) попытку
+      onPasswordResult: (r) => setGuestPwResult(r),
+      // Терминалы + админ-конфиг от хоста (источник истины для зрителей)
+      onTerminals: (payload) => {
+        if (!payload) return;
+        if (payload.terminals !== undefined) setSharedTerminals(payload.terminals || []);
+        if (payload.masterPassword !== undefined) setSharedMasterPassword(payload.masterPassword || '');
+        if (payload.virusDiskReady !== undefined) setSharedVirusDisk(!!payload.virusDiskReady);
+        if (payload.hackTargetTerminalId !== undefined) setSharedHackTargetId(payload.hackTargetTerminalId || null);
+        if (payload.revealedHints !== undefined) setSharedRevealedHints(payload.revealedHints || []);
+      },
       onState: (shared) => {
         if (!shared) return;
         if (shared.stage) setStage(shared.stage);
-        if (shared.currentTermId) {
-          const t = (stateRef.current.terminals || []).find(x => x.id === shared.currentTermId);
-          if (t) setCurrentTerm(t);
-        } else if (shared.currentTermId === null) {
-          setCurrentTerm(null);
-        }
+        if (shared.currentTermId !== undefined) setCurrentTermId(shared.currentTermId);
         if (shared.nav) setRemoteNav(shared.nav);
         if (shared.pwInput          !== undefined) setPwInput(shared.pwInput);
         if (shared.hackOpen         !== undefined) setHackOpen(shared.hackOpen);
@@ -154,9 +196,6 @@ function App() {
         if (shared.hackReward       !== undefined) setHackReward(shared.hackReward);
         if (shared.hackPuzzleType   !== undefined) setHackPuzzleType(shared.hackPuzzleType);
         if (shared.hackSnapshot     !== undefined) setHackSnapshot(shared.hackSnapshot);
-        if (shared.virusDiskReady   !== undefined) setSharedVirusDisk(shared.virusDiskReady);
-        if (shared.hackTargetTermId !== undefined) setSharedHackTargetId(shared.hackTargetTermId);
-        if (shared.revealedHints    !== undefined) setSharedRevealedHints(shared.revealedHints || []);
       },
     });
   }, []);
@@ -164,25 +203,33 @@ function App() {
   const isHost = sessionRole === 'host' || sessionRole === 'offline';
   const isViewer = sessionRole === 'viewer';
 
-  // Зрители получают virusDiskReady/hackTargetTerminalId/revealedHints через broadcast, а не из localStorage
+  // Зритель: источник истины — sharedTerminals (от хоста), не локальный localStorage.
+  // Локальный state остаётся как кэш UI/твики, но пароли/файлы/имена/мастер берём от хоста.
   const effectiveState = _useMemo(() => {
     if (!isViewer) return state;
+    const baseTerminals = sharedTerminals || [];
     const hintMap = new Map((sharedRevealedHints || []).map(h => [h.id, h.notes || '']));
-    const terminals = (state.terminals || []).map(t => {
-      if (hintMap.has(t.id)) {
-        return { ...t, hintRevealed: true, hintNotes: hintMap.get(t.id) };
-      }
-      // Сбрасываем локальный hintRevealed у зрителя — источник истины — хост
-      if (t.hintRevealed) return { ...t, hintRevealed: false, hintNotes: '' };
-      return t;
+    const terminals = baseTerminals.map(t => {
+      if (hintMap.has(t.id)) return { ...t, hintRevealed: true, hintNotes: hintMap.get(t.id) };
+      return { ...t, hintRevealed: false, hintNotes: '' };
     });
     return {
       ...state,
       terminals,
+      masterPassword: sharedMasterPassword || '',
       virusDiskReady: sharedVirusDisk,
       hackTargetTerminalId: sharedHackTargetId,
     };
-  }, [state, isViewer, sharedVirusDisk, sharedHackTargetId, sharedRevealedHints]);
+  }, [state, isViewer, sharedTerminals, sharedMasterPassword, sharedVirusDisk, sharedHackTargetId, sharedRevealedHints]);
+
+  // currentTerm вычисляем из id и актуального списка (свой для хоста, shared для зрителя).
+  // previewTermObj перекрывает (preview только в админ-режиме).
+  const currentTerm = _useMemo(() => {
+    if (previewTermObj) return previewTermObj;
+    if (!currentTermId) return null;
+    const list = (isViewer ? sharedTerminals : state.terminals) || [];
+    return list.find(x => x.id === currentTermId) || null;
+  }, [previewTermObj, currentTermId, isViewer, sharedTerminals, state.terminals]);
 
   // Хост бродкастит стейт
   const revealedHintsKey = _useMemo(() => (state.terminals || [])
@@ -190,46 +237,13 @@ function App() {
     .map(t => t.id + ':' + (t.hintNotes || ''))
     .join('|'), [state.terminals]);
 
+  // UI-стейт: stage / current terminal / nav / pwInput / hack-game. Шлём часто.
   _useEffect(() => {
     if (IS_ADMIN_ROUTE) return;
     if (sessionRole !== 'host') return;
-    const revealedHints = (state.terminals || [])
-      .filter(t => t.hintRevealed)
-      .map(t => ({ id: t.id, notes: t.hintNotes || '' }));
     SCPSession.broadcastState({
       stage,
-      currentTermId: currentTerm ? currentTerm.id : null,
-      nav: remoteNav, // хост сам обновит nav через onNav
-      hackOpen,
-      hackDone,
-      hackReward,
-      hackPuzzleType,
-      hackSnapshot,
-      pwInput,
-      virusDiskReady: state.virusDiskReady || false,
-      hackTargetTermId: state.hackTargetTerminalId || null,
-      revealedHints,
-    });
-  }, [sessionRole, stage, currentTerm && currentTerm.id, remoteNav && remoteNav.view, remoteNav && remoteNav.folderIdx, remoteNav && remoteNav.fileIdx, hackOpen, hackDone, hackReward, hackPuzzleType, hackSnapshot, pwInput, state.virusDiskReady, state.hackTargetTerminalId, revealedHintsKey]);
-
-  // === Дублирующий бродкаст полей админки ===
-  // Главный эффект выше отправляет полный стейт, но в некоторых сценариях (например,
-  // приход обновления через BroadcastChannel('scp_admin') в тот же тик, что и переход
-  // sessionRole на 'host') effect может зафиксировать "старое" значение поля до того,
-  // как стейт пересоберётся. Этот узкий эффект гарантирует, что любое изменение
-  // virusDiskReady / hackTargetTerminalId уходит к зрителям независимо.
-  // Использует свежее значение state через stateRef + отдельный merge на стороне хоста.
-  _useEffect(() => {
-    if (IS_ADMIN_ROUTE) return;
-    if (sessionRole !== 'host') return;
-    // broadcastState теперь сохраняет lastSharedState даже если ещё не хост,
-    // поэтому передаём полный совместимый payload.
-    const revealedHints = (state.terminals || [])
-      .filter(t => t.hintRevealed)
-      .map(t => ({ id: t.id, notes: t.hintNotes || '' }));
-    SCPSession.broadcastState({
-      stage,
-      currentTermId: currentTerm ? currentTerm.id : null,
+      currentTermId: currentTermId,
       nav: remoteNav,
       hackOpen,
       hackDone,
@@ -237,11 +251,24 @@ function App() {
       hackPuzzleType,
       hackSnapshot,
       pwInput,
+    });
+  }, [sessionRole, stage, currentTermId, remoteNav && remoteNav.view, remoteNav && remoteNav.folderIdx, remoteNav && remoteNav.fileIdx, hackOpen, hackDone, hackReward, hackPuzzleType, hackSnapshot, pwInput]);
+
+  // Терминалы + админ-конфиг: источник истины для зрителей. Шлём реже, при изменениях.
+  _useEffect(() => {
+    if (IS_ADMIN_ROUTE) return;
+    if (sessionRole !== 'host') return;
+    const revealedHints = (state.terminals || [])
+      .filter(t => t.hintRevealed)
+      .map(t => ({ id: t.id, notes: t.hintNotes || '' }));
+    SCPSession.broadcastTerminals({
+      terminals: state.terminals || [],
+      masterPassword: state.masterPassword || '',
       virusDiskReady: !!state.virusDiskReady,
-      hackTargetTermId: state.hackTargetTerminalId || null,
+      hackTargetTerminalId: state.hackTargetTerminalId || null,
       revealedHints,
     });
-  }, [sessionRole, state.virusDiskReady, state.hackTargetTerminalId, revealedHintsKey]);
+  }, [sessionRole, state.terminals, state.masterPassword, state.virusDiskReady, state.hackTargetTerminalId, revealedHintsKey]);
 
   // Трекинг курсора
   _useEffect(() => {
@@ -256,7 +283,7 @@ function App() {
   }, []);
 
   const handleLogin = (term) => {
-    setCurrentTerm(term);
+    setCurrentTermId(term.id);
     setStage('terminal');
     setRemoteNav({ view: 'folders', folderIdx: 0, fileIdx: 0 });
     setLockInfo({ fails: 0, until: 0 });
@@ -266,16 +293,16 @@ function App() {
     setLockInfo({ fails: 0, until: 0 });
   };
   const exitTerminal = () => {
-    setCurrentTerm(null);
+    setCurrentTermId(null);
     setStage('login');
   };
   const exitAdmin = () => {
-    if (previewFromAdmin) { setPreviewFromAdmin(null); setStage('admin'); return; }
+    if (previewFromAdmin) { setPreviewFromAdmin(null); setPreviewTermObj(null); setStage('admin'); return; }
     if (IS_ADMIN_ROUTE) { setStage('adminLogin'); return; }
     setStage('login');
   };
-  const previewTerm = (t) => { setCurrentTerm(t); setPreviewFromAdmin(t); setStage('terminal'); };
-  const exitPreview = () => { setCurrentTerm(null); setPreviewFromAdmin(null); setStage('admin'); };
+  const previewTerm = (t) => { setPreviewTermObj(t); setPreviewFromAdmin(t); setStage('terminal'); };
+  const exitPreview = () => { setPreviewTermObj(null); setPreviewFromAdmin(null); setStage('admin'); };
 
   const onHostNav = _useCallback((nav) => {
     setRemoteNav(nav);
@@ -343,13 +370,16 @@ function App() {
               syncPwInput={isViewer ? pwInput : null}
               hackHostCallbacks={hackHostCallbacks}
               hackViewState={hackViewState}
+              onGuestSubmit={isViewer ? (value => { setGuestPwResult(null); SCPSession.sendPasswordAttempt(value); }) : null}
+              guestPwResult={isViewer ? guestPwResult : null}
+              onGuestResultConsumed={isViewer ? (() => setGuestPwResult(null)) : null}
             />
           )}
 
           {stage === 'terminal' && currentTerm && (
             <TerminalBrowser
               terminal={currentTerm}
-              state={state}
+              state={effectiveState}
               onExit={previewFromAdmin ? exitPreview : exitTerminal}
               readOnly={isViewer}
               syncNav={isViewer ? remoteNav : null}
@@ -460,7 +490,9 @@ function SessionBadge({ role, status, peers }) {
   else return null;
 
   const self = SCPSession.selfName ? (' [' + SCPSession.selfName + ']') : '';
-  return <div className={'session-badge ' + cls}>{text}{self}</div>;
+  // Хвост roomId — два юзера в разных комнатах сразу увидят, что хвосты не совпадают
+  const room = SCPSession.roomId ? (' · room ' + String(SCPSession.roomId).slice(-5)) : '';
+  return <div className={'session-badge ' + cls}>{text}{self}{room}</div>;
 }
 
 // === Экран входа админа (отдельный маршрут ?admin=1) ===
