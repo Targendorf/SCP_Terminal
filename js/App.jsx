@@ -188,24 +188,6 @@ function App() {
         if (payload.hackTargetTerminalId !== undefined) setSharedHackTargetId(payload.hackTargetTerminalId || null);
         if (payload.revealedHints !== undefined) setSharedRevealedHints(payload.revealedHints || []);
       },
-      // Только что стали хостом по transferControl — наследуем terminals + флаги
-      // от предыдущего хоста и пишем их в свой ЛОКАЛЬНЫЙ state, чтобы наш
-      // первый broadcastTerminals не перетёр всем подсказки/флаги пустыми.
-      onInheritedTerminals: (payload) => {
-        if (!payload) return;
-        setState(s => ({
-          ...s,
-          terminals: Array.isArray(payload.terminals) ? payload.terminals : (s.terminals || []),
-          masterPassword: payload.masterPassword !== undefined ? payload.masterPassword : s.masterPassword,
-          virusDiskReady: !!payload.virusDiskReady,
-          hackTargetTerminalId: payload.hackTargetTerminalId || null,
-        }));
-        // Safety net: useEffect для broadcastTerminals может выстрелить со stale
-        // state.terminals до того, как setState применится (callback вне React event
-        // handler — не всегда batched). Явно шлём правильный payload последним —
-        // даже если эффект уже перетёр lastSharedTerminals пустым.
-        setTimeout(() => { try { SCPSession.broadcastTerminals(payload); } catch (_) {} }, 350);
-      },
       onState: (shared) => {
         if (!shared) return;
         if (shared.stage) setStage(shared.stage);

@@ -43,7 +43,7 @@
     cursors: new Map(),     // id -> {x, y, t}
     lastSharedState: null,
     lastSharedTerminals: null,   // {terminals, masterPassword, virusDiskReady, hackTargetTerminalId, revealedHints}
-    callbacks: { onState: null, onCursors: null, onRole: null, onPeers: null, onStatus: null, onPasswordAttempt: null, onPasswordResult: null, onTerminals: null, onInheritedTerminals: null },
+    callbacks: { onState: null, onCursors: null, onRole: null, onPeers: null, onStatus: null, onPasswordAttempt: null, onPasswordResult: null, onTerminals: null },
     disabled: false,
     _ttlInterval: null,
     _promoteTimer: null,
@@ -103,14 +103,15 @@
     } else if (msg.type === 'password-attempt') {
       // Зритель попробовал ввести пароль — отдаём в приложение для валидации хостом
       emit('onPasswordAttempt', { senderId: conn.peer, value: msg.value });
-    } else if (msg.type === 'promote-ack') {
-      // Зритель подтвердил получение promote — теперь безопасно освобождаем HOST_ID.
-      // Помечаем себя как viewer ДО retryInit, чтобы _connect не пытался снова взять HOST_ID
-      // и не выиграл гонку у нового хоста (бывшего зрителя). Небольшая задержка даёт
-      // зрителю время фактически захватить HOST_ID до того, как мы попытаемся подключиться.
+    } else if (msg.type === 'promote-via-reload-ack') {
+      // Зритель подтвердил, что записал inherited snapshot в свой localStorage
+      // и сейчас перезагрузится. Освобождаем HOST_ID немедленно (destroy peer),
+      // ставим себе preferred_role=viewer и тоже reload'аем — после reload
+      // подключимся к новому хосту как обычный зритель.
       if (state._promoteTimer) { clearTimeout(state._promoteTimer); state._promoteTimer = null; }
+      try { if (state.peer) state.peer.destroy(); } catch (e) {}
       sessionStorage.setItem('scp_preferred_role', 'viewer');
-      setTimeout(() => retryInit(), 300);
+      setTimeout(() => { try { window.location.reload(); } catch (e) {} }, 150);
     } else if (msg.type === 'bye') {
       state.viewerConns.delete(conn.peer);
       state.peers.delete(conn.peer);
@@ -155,45 +156,26 @@
     } else if (msg.type === 'reload') {
       // Хост попросил всех зрителей перезагрузиться (после Sync в админке).
       setTimeout(() => { try { window.location.reload(); } catch (e) {} }, 200);
-    } else if (msg.type === 'promote') {
-      // Хост передаёт нам управление — подтверждаем, затем захватываем HOST_ID
-      const inheritedState = msg.state || null;
-      const inheritedTerminals = msg.terminals || null;
-      const conn = state.hostConn;
-      // Отправляем подтверждение хосту, пока соединение ещё открыто
-      try { if (conn && conn.open) conn.send(JSON.stringify({ type: 'promote-ack' })); } catch (e) {}
-      if (conn && conn._bye) { window.removeEventListener('beforeunload', conn._bye); conn._bye = null; }
-      setTimeout(() => {
-        if (state._ttlInterval) { clearInterval(state._ttlInterval); state._ttlInterval = null; }
-        try { if (state.peer) state.peer.destroy(); } catch (e) {}
-        state.peer = null;
-        state.viewerConns.clear();
-        state.peers.clear();
-        state.cursors.clear();
-        state.hostConn = null;
-        const newPeer = new Peer(HOST_ID, { debug: 0 });
-        state.peer = newPeer;
-        let resolved = false;
-        newPeer.on('open', (id) => {
-          if (resolved) return; resolved = true;
-          if (id === HOST_ID) {
-            becomeHost();
-            if (inheritedState) { state.lastSharedState = inheritedState; emit('onState', inheritedState); }
-            // Применяем terminals от старого хоста ДО того, как наш broadcastTerminals
-            // успеет рассосаться — иначе мы перетрём всем подсказки/флаги пустыми
-            if (inheritedTerminals) {
-              state.lastSharedTerminals = inheritedTerminals;
-              emit('onInheritedTerminals', inheritedTerminals);
-            }
-          } else {
-            retryInit(); // не удалось получить HOST_ID — обычный реконнект
-          }
-        });
-        newPeer.on('error', () => {
-          if (resolved) return; resolved = true;
-          retryInit();
-        });
-      }, 100);
+    } else if (msg.type === 'promote-via-reload') {
+      // Хост передаёт нам контроль через reload-based handoff. Пишем inherited
+      // snapshot в свой localStorage и помечаемся как будущий хост — после reload
+      // useStore поднимет правильные terminals/masterPassword, а SCPSession.init
+      // занимет HOST_ID. Никаких React-гонок, всё через надёжный LS.
+      const blob = (msg && msg.stateBlob) || {};
+      try {
+        const cur = JSON.parse(localStorage.getItem('scp_terminal_state_v1') || '{}');
+        const merged = { ...cur };
+        if (Array.isArray(blob.terminals)) merged.terminals = blob.terminals;
+        if (blob.masterPassword !== undefined) merged.masterPassword = blob.masterPassword;
+        if (blob.virusDiskReady !== undefined) merged.virusDiskReady = !!blob.virusDiskReady;
+        if (blob.hackTargetTerminalId !== undefined) merged.hackTargetTerminalId = blob.hackTargetTerminalId || null;
+        localStorage.setItem('scp_terminal_state_v1', JSON.stringify(merged));
+      } catch (e) {}
+      sessionStorage.setItem('scp_preferred_role', 'host');
+      // Шлём ack — старый хост по нему отпустит HOST_ID и тоже reload'нётся как viewer
+      try { if (state.hostConn && state.hostConn.open) state.hostConn.send(JSON.stringify({ type: 'promote-via-reload-ack' })); } catch (e) {}
+      // Reload спустя 1с — даём старому хосту время destroy peer и освободить HOST_ID
+      setTimeout(() => { try { window.location.reload(); } catch (e) {} }, 1000);
     }
   }
 
@@ -446,15 +428,22 @@
       if (!state.isHost) return;
       const conn = state.viewerConns.get(targetId);
       if (!conn || !conn.open) return;
+      // Reload-based handoff: посылаем зрителю наш текущий snapshot terminals,
+      // он пишет его в свой localStorage, ставит preferred_role=host, шлёт ack
+      // и перезагружается. По ack мы у себя ставим preferred_role=viewer и тоже
+      // reload'аемся. После перезагрузок роли надёжно меняются местами без
+      // React-гонок и без хрупкой PeerJS-репромоции в рамках одной сессии.
+      const blob = state.lastSharedTerminals || null;
       try {
-        conn.send(JSON.stringify({
-          type: 'promote',
-          state: state.lastSharedState,
-          terminals: state.lastSharedTerminals,
-        }));
+        conn.send(JSON.stringify({ type: 'promote-via-reload', stateBlob: blob }));
       } catch (e) {}
-      // Ждём ack от зрителя; если не пришёл за 2 с — освобождаем сами
-      state._promoteTimer = setTimeout(() => { state._promoteTimer = null; retryInit(); }, 2000);
+      // Если ack не пришёл за 3с — fallback: всё равно становимся viewer'ом и reload'аемся.
+      // Тогда зритель тоже после своего таймаута reload'а займёт HOST_ID.
+      state._promoteTimer = setTimeout(() => {
+        state._promoteTimer = null;
+        sessionStorage.setItem('scp_preferred_role', 'viewer');
+        try { window.location.reload(); } catch (e) {}
+      }, 3000);
     },
     get isHost() { return state.isHost; },
     get isReady() { return state.ready; },
