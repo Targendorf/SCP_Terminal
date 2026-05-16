@@ -346,7 +346,7 @@ function pipeChar(m) {
 }
 
 // =====================================================================
-// 7. SPEED TYPER — ввести код за 15 секунд
+// 7. SPEED TYPER — ввести код за 30 секунд
 // =====================================================================
 function TyperPuzzle({ onWin, onStateChange, readOnlySnapshot }) {
   const target = React.useMemo(() => {
@@ -354,7 +354,7 @@ function TyperPuzzle({ onWin, onStateChange, readOnlySnapshot }) {
     return parts.join('-');
   }, []);
   const [input, setInput] = React.useState('');
-  const [timeLeft, setTimeLeft] = React.useState(15);
+  const [timeLeft, setTimeLeft] = React.useState(30);
   const [msg, setMsg] = React.useState(null);
   const ref = React.useRef(null);
   const wonRef = React.useRef(false);

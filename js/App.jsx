@@ -31,19 +31,24 @@ function loadTweaks() {
 const IS_ADMIN_ROUTE = new URLSearchParams(location.search).get('admin') === '1';
 const IS_ADMIN_OPEN  = IS_ADMIN_ROUTE;
 
-// === Firestore-хук: подписка на /sessions/{sessionId} ===
+// === Firestore-хук: подписка на /sessions/{sessionId} + optimistic overlay ===
+// Optimistic: top-level patch'и применяются локально мгновенно (без ожидания
+// Firestore round-trip ~500мс-2с). Очищается на каждый новый snapshot — мы
+// предполагаем, что снапшот уже содержит наш patch. Dot-notation поля
+// (например 'hackGame.open') в optimistic не входят — они для редких операций
+// типа запуска хака, где задержка норм.
 function useFirestoreSession() {
   const sessionId = _useMemo(() => SCPFirestore.getSessionId(), []);
   const myPeerId  = _useMemo(() => SCPFirestore.getMyPeerId(), []);
-  const [data, setData] = _useState(null);
+  const [rawData, setRawData] = _useState(null);
   const [loading, setLoading] = _useState(true);
+  const [optimistic, setOptimistic] = _useState({});
 
   _useEffect(() => {
     let active = true;
     let unsub = null;
     (async () => {
       try {
-        // Если документа ещё нет — создаём из seed, claim себя как controlOwner.
         await SCPFirestore.bootstrapIfMissing(sessionId, () => {
           const seed = JSON.parse(JSON.stringify(window.SCP_SEED || {}));
           return {
@@ -60,14 +65,30 @@ function useFirestoreSession() {
       } catch (e) { console.warn('bootstrap error', e); }
       if (!active) return;
       unsub = SCPFirestore.subscribeSession(sessionId, (d) => {
-        setData(d);
+        setRawData(d);
         setLoading(false);
+        // Свежий snapshot пришёл — очищаем optimistic overlay.
+        setOptimistic({});
       });
     })();
     return () => { active = false; if (unsub) unsub(); };
   }, [sessionId, myPeerId]);
 
+  const data = _useMemo(() => {
+    if (!rawData) return null;
+    if (Object.keys(optimistic).length === 0) return rawData;
+    return Object.assign({}, rawData, optimistic);
+  }, [rawData, optimistic]);
+
   const update = _useCallback((patch) => {
+    // Optimistic: top-level поля сразу применяем в локальный overlay.
+    const flat = {};
+    Object.keys(patch || {}).forEach(k => {
+      if (k.indexOf('.') < 0) flat[k] = patch[k];
+    });
+    if (Object.keys(flat).length) {
+      setOptimistic(prev => Object.assign({}, prev, flat));
+    }
     return SCPFirestore.updateSession(sessionId, patch);
   }, [sessionId]);
 
@@ -269,16 +290,37 @@ function App() {
   };
 
   // === Hack callbacks (только хост, пишут в Firestore) ===
+  // Все апдейты через dot-notation — иначе spread из stale-closure `hackGame`
+  // перетрёт другие поля (например, open:true пропадал у зрителя через 100мс
+  // после старта из-за onSnapshot debounce → у зрителя модалка моргала и закрывалась).
+  // puzzleType генерим заранее в onOpen и кладём в Firestore — и хост, и зритель
+  // используют один и тот же тип паззла (раньше каждый выбирал random независимо).
+  const HACK_PUZZLE_TYPES = ['wordsearch', 'sequence', 'cipher', 'memory', 'pipe', 'typer'];
   const hackHostCallbacks = isHost ? {
-    onOpen: () => update({ hackGame: { open: true, done: false, reward: null, puzzleType: null } }),
-    onClose: () => update({ hackGame: { open: false, done: false, reward: null, puzzleType: null } }),
-    onDone: (reward) => update({ hackGame: { open: true, done: true, reward: reward || null, puzzleType: (hackGame && hackGame.puzzleType) || null } }),
-    onSnapshot: (snap) => {
-      // Snapshot высокочастотен — НЕ пишем в Firestore. Сохраняем только тип puzzle при первом snap.
-      if (snap && snap.puzzleType && hackGame && hackGame.puzzleType !== snap.puzzleType) {
-        update({ hackGame: { ...(hackGame || {}), puzzleType: snap.puzzleType } });
-      }
+    onOpen: () => {
+      const admin = data && data.hackPuzzleType;
+      const pt = (admin && admin !== 'random' && HACK_PUZZLE_TYPES.indexOf(admin) >= 0)
+        ? admin
+        : HACK_PUZZLE_TYPES[Math.floor(Math.random() * HACK_PUZZLE_TYPES.length)];
+      update({
+        'hackGame.open': true,
+        'hackGame.done': false,
+        'hackGame.reward': null,
+        'hackGame.puzzleType': pt,
+      });
     },
+    onClose: () => update({
+      'hackGame.open': false,
+      'hackGame.done': false,
+      'hackGame.reward': null,
+      'hackGame.puzzleType': null,
+    }),
+    onDone: (reward) => update({
+      'hackGame.done': true,
+      'hackGame.reward': reward || null,
+    }),
+    // puzzleType уже set заранее, прогресс паззла не синкаем — Firestore writes были бы дороги.
+    onSnapshot: () => {},
   } : null;
 
   const hackViewState = (!isHost && hackGame) ? {
@@ -309,6 +351,16 @@ function App() {
 
   // Для AdminPanel и PasswordScreen state-форма должна быть совместима со старым кодом
   const stateView = data || (window.SCP_SEED || {});
+  // Для HackGame (внутри PasswordScreen) нужно, чтобы хост использовал ТОТ ЖЕ puzzleType,
+  // что и зритель. HackGame.jsx читает state.hackPuzzleType через pickHackPuzzle. Подменяем
+  // его на hackGame.puzzleType (он был выставлен в Firestore в hackHostCallbacks.onOpen
+  // ровно один раз). Иначе хост и зритель выбирают random независимо.
+  const stateForPwScreen = _useMemo(() => {
+    if (!data) return stateView;
+    const pt = (data.hackGame && data.hackGame.puzzleType) || data.hackPuzzleType;
+    if (pt === data.hackPuzzleType) return data;
+    return Object.assign({}, data, { hackPuzzleType: pt });
+  }, [data, data && data.hackGame && data.hackGame.puzzleType]);
   // setState-совместимая обёртка для AdminPanel: принимает либо patch-объект,
   // либо updater(prev). Чтобы не затирать participants/controlOwner/updatedAt,
   // которые могли быть обновлены другими клиентами с момента последнего snapshot,
@@ -360,7 +412,7 @@ function App() {
 
           {stage === 'login' && (
             <PasswordScreen
-              state={stateView}
+              state={stateForPwScreen}
               onLogin={handleLogin}
               onMasterUnlock={handleMasterUnlock}
               lockInfo={lockInfo}
