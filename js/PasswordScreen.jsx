@@ -1,7 +1,7 @@
 // Экран ввода пароля
 function PasswordScreen({
   state, onLogin, onMasterUnlock, lockInfo, setLockInfo, canInput = true,
-  hackHostCallbacks, hackViewState,
+  hackHostCallbacks, hackViewState, hackInitialSnapshot, hackHostShouldOpen,
 }) {
   // Только хост вводит. Зрители просто смотрят.
   const inputAllowed = canInput;
@@ -11,6 +11,14 @@ function PasswordScreen({
   const [hackOpen, setHackOpen] = useState(false);
   const [foundOpen, setFoundOpen] = useState(false);
   const inputRef = useRef(null);
+
+  // Resume после transferControl: если этот клиент стал хостом, а в Firestore
+  // hackGame.open=true — открываем модалку локально (не вызывая onOpen,
+  // т.к. он сбросит snapshot и pickPuzzleType заново).
+  useEffect(() => {
+    if (hackHostShouldOpen && !hackOpen) setHackOpen(true);
+    else if (!hackHostShouldOpen && hackOpen) setHackOpen(false);
+  }, [hackHostShouldOpen]);
 
   useEffect(() => {
     if (inputRef.current && inputAllowed) inputRef.current.focus();
@@ -157,6 +165,7 @@ function PasswordScreen({
         }}
         onSnapshot={hackHostCallbacks ? hackHostCallbacks.onSnapshot : null}
         onDone={hackHostCallbacks ? hackHostCallbacks.onDone : null}
+        initialSnapshot={hackInitialSnapshot || null}
       />
     )}
     {hackViewState && hackViewState.open && (
@@ -166,6 +175,7 @@ function PasswordScreen({
         viewState={hackViewState}
         onCancel={() => {}}
         onSuccess={() => {}}
+        initialSnapshot={hackInitialSnapshot || null}
       />
     )}
     <div className="col" style={{height: '100%', justifyContent: 'flex-start', gap: '1.2em'}}>

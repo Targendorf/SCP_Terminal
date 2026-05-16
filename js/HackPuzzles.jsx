@@ -4,25 +4,25 @@
 // =====================================================================
 // 1. SEQUENCE LOCK — повторить последовательность (Simon Says)
 // =====================================================================
-function SequencePuzzle({ onWin, onStateChange, readOnlySnapshot }) {
+function SequencePuzzle({ onWin, onStateChange, readOnlySnapshot, initialSnapshot }) {
   const SYMBOLS = ['▲', '◆', '●', '■', '★'];
   const COLORS = ['#ff5566', '#ffb000', '#66ccff', '#33ff66', '#cc88ff'];
   const TOTAL_ROUNDS = 4;
   const START_LEN = 3;
 
-  const [round, setRound] = React.useState(1);
-  const [seq, setSeq] = React.useState(() => gen(START_LEN));
-  const [flash, setFlash] = React.useState(-1);
-  const [userIdx, setUserIdx] = React.useState(0);
-  const [phase, setPhase] = React.useState('show'); // show | input | fail
-  const [errors, setErrors] = React.useState(0);
-  const wonRef = React.useRef(false);
-
   function gen(n) { return Array.from({length: n}, () => Math.floor(Math.random() * SYMBOLS.length)); }
 
+  const [round,   setRound]   = React.useState(() => (initialSnapshot && initialSnapshot.round)   || 1);
+  const [seq,     setSeq]     = React.useState(() => (initialSnapshot && initialSnapshot.seq)     || gen(START_LEN));
+  const [flash,   setFlash]   = React.useState(() => (initialSnapshot && typeof initialSnapshot.flash === 'number') ? initialSnapshot.flash : -1);
+  const [userIdx, setUserIdx] = React.useState(() => (initialSnapshot && initialSnapshot.userIdx) || 0);
+  const [phase,   setPhase]   = React.useState(() => (initialSnapshot && initialSnapshot.phase)   || 'show'); // show | input | fail
+  const [errors,  setErrors]  = React.useState(() => (initialSnapshot && initialSnapshot.errors)  || 0);
+  const wonRef = React.useRef(false);
+
   React.useEffect(() => {
-    if (onStateChange) onStateChange({ phase, round, flash, errors });
-  }, [phase, round, flash, errors]);
+    if (onStateChange) onStateChange({ seq, phase, round, flash, userIdx, errors });
+  }, [seq, phase, round, flash, userIdx, errors]);
 
   React.useEffect(() => {
     if (phase !== 'show') return;
@@ -97,24 +97,31 @@ function SequencePuzzle({ onWin, onStateChange, readOnlySnapshot }) {
 // =====================================================================
 // 3. CIPHER DECODE — шифр Цезаря. Игрок двигает сдвиг до читаемости.
 // =====================================================================
-function CipherPuzzle({ onWin, onStateChange, readOnlySnapshot }) {
+function CipherPuzzle({ onWin, onStateChange, readOnlySnapshot, initialSnapshot }) {
   const ALPHA = 'АБВГДЕЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ';
   const PHRASES_RU = ['ПРОРЫВ ПЕРИМЕТРА СЕКТОР СЕМЬ', 'ПРОТОКОЛ ОМЕГА АКТИВЕН', 'ДОСТУП РАЗРЕШЕН УРОВЕНЬ ПЯТЬ', 'ЭВАКУАЦИЯ ПЕРСОНАЛА КЛАСС КЕТЕР', 'КОНТЕЙНМЕНТ НАРУШЕН ПОВТОРЯЮ НАРУШЕН'];
 
   const { target, encrypted, rightShift } = React.useMemo(() => {
+    if (initialSnapshot && initialSnapshot.target && initialSnapshot.encrypted) {
+      return {
+        target: initialSnapshot.target,
+        encrypted: initialSnapshot.encrypted,
+        rightShift: initialSnapshot.rightShift || 0,
+      };
+    }
     const list = PHRASES_RU;
     const phrase = list[Math.floor(Math.random() * list.length)];
     const sh = 3 + Math.floor(Math.random() * (ALPHA.length - 5));
     return { target: phrase, encrypted: caesarShift(phrase, sh, ALPHA), rightShift: sh };
   }, []);
 
-  const [userShift, setUserShift] = React.useState(0);
+  const [userShift, setUserShift] = React.useState(() => (initialSnapshot && initialSnapshot.userShift) || 0);
   const decrypted = caesarShift(encrypted, -userShift, ALPHA);
   const [msg, setMsg] = React.useState(null);
   const wonRef = React.useRef(false);
 
   React.useEffect(() => {
-    if (onStateChange) onStateChange({ userShift });
+    if (onStateChange) onStateChange({ target, encrypted, rightShift, userShift });
   }, [userShift]);
 
   const tryLock = () => {
@@ -128,7 +135,8 @@ function CipherPuzzle({ onWin, onStateChange, readOnlySnapshot }) {
   };
 
   const displayShift     = readOnlySnapshot ? (readOnlySnapshot.userShift || 0) : userShift;
-  const displayDecrypted = caesarShift(encrypted, -displayShift, ALPHA);
+  const displayEncrypted = (readOnlySnapshot && readOnlySnapshot.encrypted) || encrypted;
+  const displayDecrypted = caesarShift(displayEncrypted, -displayShift, ALPHA);
 
   return (
     <div className="cipher-box">
@@ -137,7 +145,7 @@ function CipherPuzzle({ onWin, onStateChange, readOnlySnapshot }) {
       </div>
       <div className="cipher-field">
         <div className="t-dim" style={{fontSize: 12}}>ЗАШИФРОВАНО //</div>
-        <div className="cipher-text t-amber">{encrypted}</div>
+        <div className="cipher-text t-amber">{displayEncrypted}</div>
       </div>
       <div className="cipher-controls">
         <button className="btn"
@@ -174,13 +182,14 @@ function caesarShift(text, shift, alpha) {
 // =====================================================================
 // 4. MEMORY GRID — запомнить подсвеченные клетки и кликнуть их снова
 // =====================================================================
-function MemoryPuzzle({ onWin, onStateChange, readOnlySnapshot }) {
+function MemoryPuzzle({ onWin, onStateChange, readOnlySnapshot, initialSnapshot }) {
   const SIZE = 5;
   const ROUNDS = 3;
-  const [round, setRound] = React.useState(0);
-  const [phase, setPhase] = React.useState('show');
-  const [target, setTarget] = React.useState(new Set());
-  const [picked, setPicked] = React.useState(new Set());
+  const hasInitial = !!(initialSnapshot && Array.isArray(initialSnapshot.target) && initialSnapshot.target.length);
+  const [round, setRound]   = React.useState(() => (initialSnapshot && typeof initialSnapshot.round === 'number') ? initialSnapshot.round : 0);
+  const [phase, setPhase]   = React.useState(() => (initialSnapshot && initialSnapshot.phase) || 'show');
+  const [target, setTarget] = React.useState(() => hasInitial ? new Set(initialSnapshot.target) : new Set());
+  const [picked, setPicked] = React.useState(() => new Set((initialSnapshot && initialSnapshot.picked) || []));
   const [err, setErr] = React.useState(false);
   const wonRef = React.useRef(false);
 
@@ -202,7 +211,8 @@ function MemoryPuzzle({ onWin, onStateChange, readOnlySnapshot }) {
     setTimeout(() => setPhase('input'), 1800 + r * 300);
   };
 
-  React.useEffect(() => { startRound(0); }, []);
+  // При наличии initialSnapshot — НЕ дёргаем startRound, иначе перезатрём seed.
+  React.useEffect(() => { if (!hasInitial) startRound(0); }, []);
 
   const click = (i) => {
     if (phase !== 'input') return;
@@ -259,7 +269,7 @@ function MemoryPuzzle({ onWin, onStateChange, readOnlySnapshot }) {
 // =====================================================================
 // 5. PIPE CONNECT — поворачивай сегменты, соедини вход с выходом
 // =====================================================================
-function PipePuzzle({ onWin, onStateChange, readOnlySnapshot }) {
+function PipePuzzle({ onWin, onStateChange, readOnlySnapshot, initialSnapshot }) {
   const W = 5, H = 4;
   const START = { x: 0, y: 1 };
   const END = { x: W - 1, y: H - 2 };
@@ -274,7 +284,7 @@ function PipePuzzle({ onWin, onStateChange, readOnlySnapshot }) {
     }
     return b;
   };
-  const [board, setBoard] = React.useState(makeBoard);
+  const [board, setBoard] = React.useState(() => (initialSnapshot && initialSnapshot.board) || makeBoard());
   const wonRef = React.useRef(false);
 
   React.useEffect(() => {
@@ -348,13 +358,16 @@ function pipeChar(m) {
 // =====================================================================
 // 7. SPEED TYPER — ввести код за 30 секунд
 // =====================================================================
-function TyperPuzzle({ onWin, onStateChange, readOnlySnapshot }) {
+function TyperPuzzle({ onWin, onStateChange, readOnlySnapshot, initialSnapshot }) {
   const target = React.useMemo(() => {
+    if (initialSnapshot && initialSnapshot.target) return initialSnapshot.target;
     const parts = ['SCP', String(Math.floor(Math.random() * 900 + 100)), 'ACC', randHex(6), randHex(4)];
     return parts.join('-');
   }, []);
-  const [input, setInput] = React.useState('');
-  const [timeLeft, setTimeLeft] = React.useState(30);
+  const [input, setInput]       = React.useState(() => (initialSnapshot && initialSnapshot.input) || '');
+  const [timeLeft, setTimeLeft] = React.useState(() =>
+    (initialSnapshot && typeof initialSnapshot.timeLeft === 'number') ? initialSnapshot.timeLeft : 30
+  );
   const [msg, setMsg] = React.useState(null);
   const ref = React.useRef(null);
   const wonRef = React.useRef(false);
@@ -367,7 +380,7 @@ function TyperPuzzle({ onWin, onStateChange, readOnlySnapshot }) {
   }, []);
 
   React.useEffect(() => {
-    if (onStateChange) onStateChange({ input, timeLeft });
+    if (onStateChange) onStateChange({ target, input, timeLeft });
   }, [input, timeLeft]);
 
   const onSubmit = (e) => {
@@ -384,8 +397,9 @@ function TyperPuzzle({ onWin, onStateChange, readOnlySnapshot }) {
 
   const displayInput    = readOnlySnapshot ? (readOnlySnapshot.input    || '')       : input;
   const displayTimeLeft = readOnlySnapshot ? (readOnlySnapshot.timeLeft ?? timeLeft) : timeLeft;
+  const displayTarget   = (readOnlySnapshot && readOnlySnapshot.target) || target;
 
-  const diff = target.split('').map((ch, i) => {
+  const diff = displayTarget.split('').map((ch, i) => {
     const u = displayInput[i];
     if (u === undefined) return <span key={i} className="t-dim">{ch}</span>;
     if (u === ch)        return <span key={i} className="t-bright">{ch}</span>;
@@ -399,7 +413,7 @@ function TyperPuzzle({ onWin, onStateChange, readOnlySnapshot }) {
       </div>
       <div className="mono" style={{textAlign: 'center'}}>
         <div className="t-dim" style={{fontSize: 12}}>{'ЦЕЛЬ'}</div>
-        <div className="typer-target t-amber">{target}</div>
+        <div className="typer-target t-amber">{displayTarget}</div>
       </div>
       <div className="mono" style={{textAlign: 'center'}}>
         <div className="t-dim" style={{fontSize: 12}}>{'ВВОД'}</div>

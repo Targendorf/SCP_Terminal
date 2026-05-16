@@ -296,31 +296,72 @@ function App() {
   // puzzleType генерим заранее в onOpen и кладём в Firestore — и хост, и зритель
   // используют один и тот же тип паззла (раньше каждый выбирал random независимо).
   const HACK_PUZZLE_TYPES = ['wordsearch', 'sequence', 'cipher', 'memory', 'pipe', 'typer'];
+
+  // Throttle snapshot writes: HackGame уже debounce'ит ~100мс, но Firestore
+  // оплачивается за каждый write — throttle до 2 writes/sec (500мс между ними).
+  // useRef хранит latest snapshot + таймер. При срабатывании пишем самый свежий.
+  const _hackSnapLatest  = _useRef(null);
+  const _hackSnapTimer   = _useRef(null);
+  const _hackSnapPending = _useRef(false);
+  const flushHackSnap = _useCallback(() => {
+    _hackSnapTimer.current = null;
+    _hackSnapPending.current = false;
+    const snap = _hackSnapLatest.current;
+    if (snap === undefined) return;
+    update({ 'hackGame.snapshot': snap });
+  }, [update]);
+
+  _useEffect(() => {
+    return () => {
+      if (_hackSnapTimer.current) {
+        clearTimeout(_hackSnapTimer.current);
+        _hackSnapTimer.current = null;
+      }
+    };
+  }, []);
+
   const hackHostCallbacks = isHost ? {
     onOpen: () => {
       const admin = data && data.hackPuzzleType;
       const pt = (admin && admin !== 'random' && HACK_PUZZLE_TYPES.indexOf(admin) >= 0)
         ? admin
         : HACK_PUZZLE_TYPES[Math.floor(Math.random() * HACK_PUZZLE_TYPES.length)];
+      // Сбрасываем snapshot при старте новой игры — иначе ловим устаревший
+      // state от предыдущей сессии (другой puzzleType/seed).
+      _hackSnapLatest.current = null;
+      if (_hackSnapTimer.current) { clearTimeout(_hackSnapTimer.current); _hackSnapTimer.current = null; }
+      _hackSnapPending.current = false;
       update({
         'hackGame.open': true,
         'hackGame.done': false,
         'hackGame.reward': null,
         'hackGame.puzzleType': pt,
+        'hackGame.snapshot': null,
       });
     },
-    onClose: () => update({
-      'hackGame.open': false,
-      'hackGame.done': false,
-      'hackGame.reward': null,
-      'hackGame.puzzleType': null,
-    }),
+    onClose: () => {
+      _hackSnapLatest.current = null;
+      if (_hackSnapTimer.current) { clearTimeout(_hackSnapTimer.current); _hackSnapTimer.current = null; }
+      _hackSnapPending.current = false;
+      update({
+        'hackGame.open': false,
+        'hackGame.done': false,
+        'hackGame.reward': null,
+        'hackGame.puzzleType': null,
+        'hackGame.snapshot': null,
+      });
+    },
     onDone: (reward) => update({
       'hackGame.done': true,
       'hackGame.reward': reward || null,
     }),
-    // puzzleType уже set заранее, прогресс паззла не синкаем — Firestore writes были бы дороги.
-    onSnapshot: () => {},
+    // Throttled snapshot writer — latest-wins, не чаще раза в 500мс.
+    onSnapshot: (snap) => {
+      _hackSnapLatest.current = snap;
+      if (_hackSnapPending.current) return; // таймер уже взведён — обновили latest, и хватит
+      _hackSnapPending.current = true;
+      _hackSnapTimer.current = setTimeout(flushHackSnap, 500);
+    },
   } : null;
 
   const hackViewState = (!isHost && hackGame) ? {
@@ -328,7 +369,7 @@ function App() {
     done: !!hackGame.done,
     reward: hackGame.reward || null,
     puzzleType: hackGame.puzzleType || null,
-    snapshot: null, // высокочастотный snapshot не синкаем — pragmatic compromise
+    snapshot: hackGame.snapshot || null,
   } : null;
 
   // Для AdminPanel и PasswordScreen state-форма должна быть совместима со старым кодом.
@@ -421,6 +462,8 @@ function App() {
               canInput={isHost}
               hackHostCallbacks={hackHostCallbacks}
               hackViewState={hackViewState}
+              hackInitialSnapshot={hackGame && hackGame.snapshot ? hackGame.snapshot : null}
+              hackHostShouldOpen={!!(isHost && hackGame && hackGame.open && !hackGame.done)}
             />
           )}
 

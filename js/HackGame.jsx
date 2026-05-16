@@ -30,7 +30,7 @@ const PUZZLE_TITLES = {
   typer:      'ВВОД КОДА',
 };
 
-function HackGame({ state, onSuccess, onCancel, onSnapshot, onDone, readOnly, viewState }) {
+function HackGame({ state, onSuccess, onCancel, onSnapshot, onDone, readOnly, viewState, initialSnapshot }) {
   const [done, setDone] = React.useState(false);
   const reward = React.useMemo(() => getHackReward(state), []);
   const puzzleType = React.useMemo(() => pickHackPuzzle(state.hackPuzzleType), []);
@@ -41,6 +41,23 @@ function HackGame({ state, onSuccess, onCancel, onSnapshot, onDone, readOnly, vi
   const effectiveDone   = (readOnly && viewState) ? (viewState.done   || false) : done;
   const effectiveReward = (readOnly && viewState) ? (viewState.reward || null)  : reward;
   const effectiveSnap   = (readOnly && viewState) ? (viewState.snapshot || null) : null;
+
+  // initialSnapshot имеет форму { puzzleType, puzzleState } (см. handleSnapshot).
+  // Вытаскиваем puzzleState — это то, что Puzzle ожидает. Используется ТОЛЬКО при
+  // первом mount Puzzle (seed-поля). Дальнейшие изменения от хоста на зрителя идут
+  // через readOnlySnapshot (effectiveSnap.puzzleState).
+  const initialPuzzleSnap = React.useMemo(() => {
+    if (initialSnapshot && initialSnapshot.puzzleType === activePuzzleType) {
+      return initialSnapshot.puzzleState || null;
+    }
+    return null;
+  }, []);
+  // Зритель при первом получении viewState.snapshot должен видеть seed.
+  // readOnlySnapshot уже несёт всё (включая seed), но при первом кадре до прихода
+  // snapshot он может быть null — fallback на initialPuzzleSnap.
+  const readOnlyPuzzleSnap = readOnly
+    ? ((effectiveSnap && effectiveSnap.puzzleState) || initialPuzzleSnap || null)
+    : null;
 
   // Каждый <script type="text/babel"> компилируется в своём scope, поэтому
   // паззлы из HackPuzzles.jsx доступны только через window.*
@@ -91,7 +108,8 @@ function HackGame({ state, onSuccess, onCancel, onSnapshot, onDone, readOnly, vi
               }
             }}
             onStateChange={!readOnly ? handleSnapshot : null}
-            readOnlySnapshot={readOnly ? effectiveSnap : null}
+            readOnlySnapshot={readOnlyPuzzleSnap}
+            initialSnapshot={initialPuzzleSnap}
           />
         )}
 
@@ -120,16 +138,24 @@ function HackGame({ state, onSuccess, onCancel, onSnapshot, onDone, readOnly, vi
 // ======================================================================
 // 1. WORD SEARCH — поиск слов 15×15. Только → и ↓. Слова ≥ 4 букв.
 // ======================================================================
-function WordSearchPuzzle({ onWin, onStateChange, readOnlySnapshot }) {
+function WordSearchPuzzle({ onWin, onStateChange, readOnlySnapshot, initialSnapshot }) {
   const SIZE = 15;
   const WORDS_RU = ['КЕТЕР','ЕВКЛИД','АНОМАЛ','СЕКТОР','ФОНД','ОБЪЕКТ','ПРОТОКОЛ','АРХИВ','ЗОНА','СЕКРЕТ','ДОСТУП','ПРОРЫВ','ПРИЗРАК','ВАКЦИНА','БАРЬЕР','СИГНАЛ','РАЗЛОМ','ЦИФРА','МОЛНИЯ','АГЕНТ','ГРУППА','ОХРАНА','МАРКЕР','ДОКЛАД','СКАНЕР','КОДОН','ГАММА','ОМЕГА','РЕАКТОР','МУТАНТ','ВИРУС','МАЯК','ПЕЩЕРА','СИЯНИЕ','ПОРТАЛ'];
 
-  const game = React.useMemo(() => makeGrid(SIZE, WORDS_RU), []);
-  const [found, setFound] = React.useState([]);
+  // Seed (grid + words) либо из initialSnapshot, либо генерим свой.
+  const game = React.useMemo(() => {
+    if (initialSnapshot && initialSnapshot.grid && initialSnapshot.words) {
+      return { grid: initialSnapshot.grid, words: initialSnapshot.words };
+    }
+    return makeGrid(SIZE, WORDS_RU);
+  }, []);
+  const [found, setFound] = React.useState(() => (initialSnapshot && initialSnapshot.found) || []);
   const [dragging, setDragging] = React.useState(null);
   const [current, setCurrent] = React.useState(null);
   const [shake, setShake] = React.useState(false);
-  const [foundCellsMap, setFoundCellsMap] = React.useState(new Set());
+  const [foundCellsMap, setFoundCellsMap] = React.useState(() =>
+    new Set((initialSnapshot && initialSnapshot.foundCells) || [])
+  );
   const boardRef = React.useRef(null);
   const winRef = React.useRef(false);
 
@@ -143,6 +169,8 @@ function WordSearchPuzzle({ onWin, onStateChange, readOnlySnapshot }) {
   React.useEffect(() => {
     if (!onStateChange) return;
     onStateChange({
+      grid: game.grid,
+      words: game.words,
       found,
       foundCells: Array.from(foundCellsMap),
       currentCells: current ? current.cells : [],
@@ -188,6 +216,8 @@ function WordSearchPuzzle({ onWin, onStateChange, readOnlySnapshot }) {
     setDragging(null); setCurrent(null);
   };
 
+  const roGrid       = (readOnlySnapshot && readOnlySnapshot.grid)  || game.grid;
+  const roWords      = (readOnlySnapshot && readOnlySnapshot.words) || game.words;
   const roFound      = readOnlySnapshot ? (readOnlySnapshot.found || []) : found;
   const roFoundCells = readOnlySnapshot ? new Set(readOnlySnapshot.foundCells || []) : foundCellsMap;
   const roCurrent    = readOnlySnapshot ? (readOnlySnapshot.currentCells || []) : (current ? current.cells : []);
@@ -200,10 +230,10 @@ function WordSearchPuzzle({ onWin, onStateChange, readOnlySnapshot }) {
         {'> Найдите 3 слова. Только СЛЕВА→НАПРАВО или СВЕРХУ↓ВНИЗ.'}
       </div>
       <div className="hack-words mono" style={{fontSize: 14}}>
-        {game.words.map((w, i) => (
+        {roWords.map((w, i) => (
           <span key={i} className={roFound.includes(i) ? 't-bright hack-word-found' : 't-dim'}>
             {roFound.includes(i) ? '✓ ' + w : '• ' + w.replace(/./g, '_')}
-            {i < game.words.length - 1 ? '   ' : ''}
+            {i < roWords.length - 1 ? '   ' : ''}
           </span>
         ))}
       </div>
@@ -219,7 +249,7 @@ function WordSearchPuzzle({ onWin, onStateChange, readOnlySnapshot }) {
           onTouchMove={readOnlySnapshot ? undefined : onMove}
           onTouchEnd={readOnlySnapshot ? undefined : onEnd}
         >
-          {game.grid.map((row, r) => row.map((ch, c) => (
+          {roGrid.map((row, r) => row.map((ch, c) => (
             <div key={r + '-' + c}
               className={'hack-cell' + (isFoundCell(r, c) ? ' found' : '') + (isInCurrent(r, c) ? ' selecting' : '')}>
               {ch}
