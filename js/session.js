@@ -43,7 +43,7 @@
     cursors: new Map(),     // id -> {x, y, t}
     lastSharedState: null,
     lastSharedTerminals: null,   // {terminals, masterPassword, virusDiskReady, hackTargetTerminalId, revealedHints}
-    callbacks: { onState: null, onCursors: null, onRole: null, onPeers: null, onStatus: null, onPasswordAttempt: null, onPasswordResult: null, onTerminals: null },
+    callbacks: { onState: null, onCursors: null, onRole: null, onPeers: null, onStatus: null, onPasswordAttempt: null, onPasswordResult: null, onTerminals: null, onInheritedTerminals: null },
     disabled: false,
     _ttlInterval: null,
     _promoteTimer: null,
@@ -152,9 +152,13 @@
     } else if (msg.type === 'password-result') {
       // Ответ хоста на нашу попытку ввести пароль
       emit('onPasswordResult', msg);
+    } else if (msg.type === 'reload') {
+      // Хост попросил всех зрителей перезагрузиться (после Sync в админке).
+      setTimeout(() => { try { window.location.reload(); } catch (e) {} }, 200);
     } else if (msg.type === 'promote') {
       // Хост передаёт нам управление — подтверждаем, затем захватываем HOST_ID
       const inheritedState = msg.state || null;
+      const inheritedTerminals = msg.terminals || null;
       const conn = state.hostConn;
       // Отправляем подтверждение хосту, пока соединение ещё открыто
       try { if (conn && conn.open) conn.send(JSON.stringify({ type: 'promote-ack' })); } catch (e) {}
@@ -175,6 +179,12 @@
           if (id === HOST_ID) {
             becomeHost();
             if (inheritedState) { state.lastSharedState = inheritedState; emit('onState', inheritedState); }
+            // Применяем terminals от старого хоста ДО того, как наш broadcastTerminals
+            // успеет рассосаться — иначе мы перетрём всем подсказки/флаги пустыми
+            if (inheritedTerminals) {
+              state.lastSharedTerminals = inheritedTerminals;
+              emit('onInheritedTerminals', inheritedTerminals);
+            }
           } else {
             retryInit(); // не удалось получить HOST_ID — обычный реконнект
           }
@@ -313,6 +323,13 @@
       state.peer = viewer;
       viewer.on('open', () => becomeViewer());
       viewer.on('error', (e2) => {
+        // peer-unavailable приходит на peer-level, а не на conn — сюда. Хост
+        // на самом деле не существует → сбросить sticky-роль и попробовать стать хостом.
+        if (e2 && (e2.type === 'peer-unavailable' || /Could not connect to peer/i.test(String(e2.message || '')))) {
+          sessionStorage.removeItem('scp_preferred_role');
+          setTimeout(() => retryInit(), 400);
+          return;
+        }
         console.warn('SCPSession viewer error', e2);
         emit('onStatus', 'offline');
       });
@@ -338,6 +355,11 @@
         state.peer = viewer;
         viewer.on('open', () => becomeViewer());
         viewer.on('error', (e2) => {
+          if (e2 && (e2.type === 'peer-unavailable' || /Could not connect to peer/i.test(String(e2.message || '')))) {
+            sessionStorage.removeItem('scp_preferred_role');
+            setTimeout(() => retryInit(), 400);
+            return;
+          }
           console.warn('SCPSession viewer error', e2);
           emit('onStatus', 'offline');
         });
@@ -395,6 +417,12 @@
     }
   }
 
+  // Хост: разослать всем зрителям команду reload (после Sync в админке).
+  function broadcastReload() {
+    if (!state.isHost) return;
+    broadcastFromHost({ type: 'reload' });
+  }
+
   // Зритель → хост: отправить попытку пароля на серверную валидацию.
   function sendPasswordAttempt(value) {
     if (state.isHost) return;
@@ -411,14 +439,20 @@
   }
 
   window.SCPSession = {
-    init, disable, broadcastState, broadcastTerminals, sendCursor,
+    init, disable, broadcastState, broadcastTerminals, broadcastReload, sendCursor,
     sendPasswordAttempt, sendToPeer,
     roomId: ROOM,
     transferControl: (targetId) => {
       if (!state.isHost) return;
       const conn = state.viewerConns.get(targetId);
       if (!conn || !conn.open) return;
-      try { conn.send(JSON.stringify({ type: 'promote', state: state.lastSharedState })); } catch (e) {}
+      try {
+        conn.send(JSON.stringify({
+          type: 'promote',
+          state: state.lastSharedState,
+          terminals: state.lastSharedTerminals,
+        }));
+      } catch (e) {}
       // Ждём ack от зрителя; если не пришёл за 2 с — освобождаем сами
       state._promoteTimer = setTimeout(() => { state._promoteTimer = null; retryInit(); }, 2000);
     },

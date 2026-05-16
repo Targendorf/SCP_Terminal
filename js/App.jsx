@@ -119,8 +119,11 @@ function App() {
       bc.onmessage = (e) => {
         if (!e.data) return;
         if (e.data.type === 'force_reload') {
+          // BroadcastChannel доходит только до вкладок этого браузера — а удалённые
+          // юзеры подключены по PeerJS. Если мы хост, пересылаем команду в сеть.
+          try { if (SCPSession.broadcastReload) SCPSession.broadcastReload(); } catch (_) {}
           // sessionStorage уже хранит роль (host/viewer) — при перезагрузке восстановится
-          window.location.reload();
+          setTimeout(() => window.location.reload(), 250);
         } else if (e.data.type === 'admin_field_update') {
           // Мгновенный патч полей, управляемых админкой (мимо storage event,
           // который иногда не успевает прокинуться при быстром переключении вкладок).
@@ -184,6 +187,19 @@ function App() {
         if (payload.virusDiskReady !== undefined) setSharedVirusDisk(!!payload.virusDiskReady);
         if (payload.hackTargetTerminalId !== undefined) setSharedHackTargetId(payload.hackTargetTerminalId || null);
         if (payload.revealedHints !== undefined) setSharedRevealedHints(payload.revealedHints || []);
+      },
+      // Только что стали хостом по transferControl — наследуем terminals + флаги
+      // от предыдущего хоста и пишем их в свой ЛОКАЛЬНЫЙ state, чтобы наш
+      // первый broadcastTerminals не перетёр всем подсказки/флаги пустыми.
+      onInheritedTerminals: (payload) => {
+        if (!payload) return;
+        setState(s => ({
+          ...s,
+          terminals: Array.isArray(payload.terminals) ? payload.terminals : (s.terminals || []),
+          masterPassword: payload.masterPassword !== undefined ? payload.masterPassword : s.masterPassword,
+          virusDiskReady: !!payload.virusDiskReady,
+          hackTargetTerminalId: payload.hackTargetTerminalId || null,
+        }));
       },
       onState: (shared) => {
         if (!shared) return;
