@@ -200,6 +200,11 @@ function App() {
           virusDiskReady: !!payload.virusDiskReady,
           hackTargetTerminalId: payload.hackTargetTerminalId || null,
         }));
+        // Safety net: useEffect для broadcastTerminals может выстрелить со stale
+        // state.terminals до того, как setState применится (callback вне React event
+        // handler — не всегда batched). Явно шлём правильный payload последним —
+        // даже если эффект уже перетёр lastSharedTerminals пустым.
+        setTimeout(() => { try { SCPSession.broadcastTerminals(payload); } catch (_) {} }, 350);
       },
       onState: (shared) => {
         if (!shared) return;
